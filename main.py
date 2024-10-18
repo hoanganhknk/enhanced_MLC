@@ -309,8 +309,6 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
 
             # bi-level optimization stage
             eta = main_schdlr.get_lr()[0]
-            grad_loss_s_mainparam_pre = []
-            grad_loss_s_metaparam_pre = []
             if args.method == 'hmlc_K':
                 loss_g, loss_s = step_hmlc_K(main_net, main_opt, hard_loss_f,
                                              meta_net, optimizer, soft_loss_f,
@@ -330,60 +328,11 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                     
                 target_c = target_g[gbs:]
                 target_g = target_g[:gbs]
-                # given current meta net, get corrected label
-                logit_s, x_s_h = main_net(data_s, return_h=True)
-                pseudo_target_s = meta_net(x_s_h.detach(), target_s)
-                loss_s = soft_loss_f(logit_s, pseudo_target_s)
-                if data_c is not None:
-                    bs1 = target_s.size(0) 
-                    bs2 = target_c.size(0)
-
-                    logit_c = main_net(data_c)
-                    loss_s2 = hard_loss_f(logit_c, target_c)
-                    loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
-                if grad_loss_s_mainparam_pre == []:
-                    grad_loss_s_mainparam_pre = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
-                    grad_loss_s_metaparam_pre = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True)   
-                    main_opt.step()
-                for i in range (5):
-                    logit_s, x_s_h = main_net(data_s, return_h=True)
-                    pseudo_target_s = meta_net(x_s_h.detach(), target_s)
-                    loss_s = soft_loss_f(logit_s, pseudo_target_s)
-                    if data_c is not None:
-                        bs1 = target_s.size(0) 
-                        bs2 = target_c.size(0)
-
-                        logit_c = main_net(data_c)
-                        loss_s2 = hard_loss_f(logit_c, target_c)
-                        loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
-                    g_grad = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
-                    main_opt.step()
-                    main_opt.zero_grad()
-                logit_s, x_s_h = main_net(data_s, return_h=True)
-                pseudo_target_s = meta_net(x_s_h.detach(), target_s)
-                loss_s = soft_loss_f(logit_s, pseudo_target_s)
-                if data_c is not None:
-                    bs1 = target_s.size(0) 
-                    bs2 = target_c.size(0)
-
-                    logit_c = main_net(data_c)
-                    loss_s2 = hard_loss_f(logit_c, target_c)
-                    loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
-                grad_g_mainparam_new = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
-                grad_g_metaparam_new = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True)
-                logit_g = main_net(data_g)
-                loss_g = hard_loss_f(logit_g, target_g)
-                gw = torch.autograd.grad(loss_g, main_net.parameters())
-                for i in range(len(grad_g_mainparam_new)):
-                    grad_g_mainparam_new[i] = grad_loss_s_mainparam_pre[i] - grad_g_mainparam_new[i] + gw[i]
-                for i in range(len(grad_g_metaparam_new)):
-                    grad_g_metaparam_new[i] = grad_loss_s_metaparam_pre[i] - grad_g_metaparam_new[i]
-                for i, param in enumerate(main_net.parameters()):
-                    param.grad = grad_g_mainparam_new[i]
-                for i, param in enumerate(meta_net.parameters()):
-                    param.grad = grad_g_metaparam_new[i]
-                main_opt.step()
-                optimizer.step()
+                loss_g, loss_s = step_hmlc_K(main_net, main_opt, hard_loss_f,
+                                             meta_net, optimizer, soft_loss_f,
+                                             data_s, target_s_, data_g, target_g,
+                                             data_c, data_c,
+                                             eta, args)
             args.steps += 1
             if i % args.every == 0:
                 writer.add_scalar('train/loss_g', loss_g.item(), args.steps)

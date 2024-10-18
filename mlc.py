@@ -70,7 +70,8 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
                 data_s, target_s, data_g, target_g,
                 data_c, target_c, 
                 eta, args):
-    
+    grad_loss_s_mainparam_pre = []
+    grad_loss_s_metaparam_pre = []
     # given current meta net, get corrected label
     logit_s, x_s_h = main_net(data_s, return_h=True)
     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
@@ -82,14 +83,47 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
         loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
-    if args.g_v_theta_pre is None:
-        args.g_v_theta_pre = loss_s
-    f_grads = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)    
-    if (args.steps+1) % (args.gradient_steps)==0: # T steps proceeded by main_net
-        logit_g = main_net(data_g)
-        loss_g = hard_loss_f(logit_g, target_g)
-    else :
+    if grad_loss_s_mainparam_pre == []:
+        grad_loss_s_mainparam_pre = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
+        grad_loss_s_metaparam_pre = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True)   
         main_opt.step()
+    for i in range (5):
+        logit_s, x_s_h = main_net(data_s, return_h=True)
+        pseudo_target_s = meta_net(x_s_h.detach(), target_s)
+        loss_s = soft_loss_f(logit_s, pseudo_target_s)
+        if data_c is not None:
+            bs1 = target_s.size(0) 
+            bs2 = target_c.size(0)
 
-    return loss_g, loss_s
+            logit_c = main_net(data_c)
+            loss_s2 = hard_loss_f(logit_c, target_c)
+            loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
+        g_grad = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
+        main_opt.step()
+        main_opt.zero_grad()
+    logit_s, x_s_h = main_net(data_s, return_h=True)
+    pseudo_target_s = meta_net(x_s_h.detach(), target_s)
+    loss_s = soft_loss_f(logit_s, pseudo_target_s)
+    if data_c is not None:
+        bs1 = target_s.size(0) 
+        bs2 = target_c.size(0)
 
+        logit_c = main_net(data_c)
+        loss_s2 = hard_loss_f(logit_c, target_c)
+        loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
+    grad_g_mainparam_new = list(torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True))
+    grad_g_metaparam_new = list(torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True))
+    logit_g = main_net(data_g)
+    loss_g = hard_loss_f(logit_g, target_g)
+    gw = torch.autograd.grad(loss_g, main_net.parameters())
+    for i in range(len(grad_g_mainparam_new)):
+        grad_g_mainparam_new[i] = grad_loss_s_mainparam_pre[i] - grad_g_mainparam_new[i] + gw[i]
+    for i in range(len(grad_g_metaparam_new)):
+        grad_g_metaparam_new[i] = grad_loss_s_metaparam_pre[i] - grad_g_metaparam_new[i]
+    for i, param in enumerate(main_net.parameters()):
+        param.grad = 0.25*grad_g_mainparam_new[i].data
+    for i, param in enumerate(meta_net.parameters()):
+        param.grad = 0.25*grad_g_metaparam_new[i].data
+    main_opt.step()
+    meta_opt.step()
+    return loss_s, loss_g
