@@ -331,7 +331,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                 loss_g, loss_s = step_hmlc_K(main_net, main_opt, hard_loss_f,
                                              meta_net, optimizer, soft_loss_f,
                                              data_s, target_s_, data_g, target_g,
-                                             data_c, data_c,
+                                             data_c, target_c,
                                              eta, args)
             args.steps += 1
             if i % args.every == 0:

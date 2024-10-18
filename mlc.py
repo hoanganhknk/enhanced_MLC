@@ -117,13 +117,21 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     loss_g = hard_loss_f(logit_g, target_g)
     gw = torch.autograd.grad(loss_g, main_net.parameters())
     for i in range(len(grad_g_mainparam_new)):
-        grad_g_mainparam_new[i] = grad_loss_s_mainparam_pre[i] - grad_g_mainparam_new[i] + gw[i]
+        grad_g_mainparam_new[i] = grad_loss_s_mainparam_pre[i] - grad_g_mainparam_new[i]
     for i in range(len(grad_g_metaparam_new)):
         grad_g_metaparam_new[i] = grad_loss_s_metaparam_pre[i] - grad_g_metaparam_new[i]
+    n_params_meta = sum([p.numel() for p in meta_net.parameters()])
+    zz = torch.zeros(n_params_meta, device='cuda')
+    dq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))]
+                    + [grad_g_metaparam_new[i].view(-1) for i in range(len(grad_g_metaparam_new))])
+    df = torch.cat([gw[i].view(-1) for i in range(len(gw))] + [zz])
+    norm_dq = dq.norm().pow(2)
+    dot = torch.dot(dq, df)
+    lmda = F.relu((0.5*norm_dq - dot)/(norm_dq + 1e-8))
     for i, param in enumerate(main_net.parameters()):
-        param.grad = 0.25*grad_g_mainparam_new[i].data
+        param.grad = lmda*grad_g_mainparam_new[i].data + gw[i].data
     for i, param in enumerate(meta_net.parameters()):
-        param.grad = 0.25*grad_g_metaparam_new[i].data
+        param.grad = lmda*grad_g_metaparam_new[i].data
     main_opt.step()
     meta_opt.step()
     return loss_s, loss_g
