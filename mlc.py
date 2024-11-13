@@ -70,6 +70,9 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
                 data_s, target_s, data_g, target_g,
                 data_c, target_c, 
                 eta, args):
+    logit_g = main_net(data_g)
+    loss_g = hard_loss_f(logit_g, target_g)
+    gw = torch.autograd.grad(loss_g, main_net.parameters())
     grad_loss_s_mainparam_pre = []
     grad_loss_s_metaparam_pre = []
     # given current meta net, get corrected label
@@ -113,9 +116,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
         loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
     grad_g_mainparam_new = list(torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True))
     grad_g_metaparam_new = list(torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True))
-    logit_g = main_net(data_g)
-    loss_g = hard_loss_f(logit_g, target_g)
-    gw = torch.autograd.grad(loss_g, main_net.parameters())
+
     for i in range(len(grad_g_mainparam_new)):
         grad_g_mainparam_new[i] = grad_loss_s_mainparam_pre[i] - grad_g_mainparam_new[i]
     for i in range(len(grad_g_metaparam_new)):
