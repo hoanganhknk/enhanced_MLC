@@ -79,7 +79,6 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     if data_c is not None:
         bs1 = target_s.size(0) 
         bs2 = target_c.size(0)
-
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
         loss_s = (loss_s * bs1 + loss_s2 * bs2 ) / (bs1+bs2)
@@ -87,7 +86,8 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
         grad_loss_s_mainparam_pre = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
         grad_loss_s_metaparam_pre = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True)   
         main_opt.step()
-    for i in range (5):
+        main_opt.zero_grad()
+    for i in range (3):
         logit_s, x_s_h = main_net(data_s, return_h=True)
         pseudo_target_s = meta_net(x_s_h.detach(), target_s)
         loss_s = soft_loss_f(logit_s, pseudo_target_s)
@@ -127,11 +127,14 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     df = torch.cat([gw[i].view(-1) for i in range(len(gw))] + [zz])
     norm_dq = dq.norm().pow(2)
     dot = torch.dot(dq, df)
-    lmda = F.relu((0.5*norm_dq - dot)/(norm_dq + 1e-8))
+    lmda = F.relu((0.25*norm_dq - dot)/(norm_dq + 1e-8))
     for i, param in enumerate(main_net.parameters()):
         param.grad = lmda*grad_g_mainparam_new[i].data + gw[i].data
     for i, param in enumerate(meta_net.parameters()):
         param.grad = lmda*grad_g_metaparam_new[i].data
     main_opt.step()
     meta_opt.step()
+    main_opt.zero_grad()
+    meta_opt.zero_grad()
     return loss_s, loss_g
+ 
