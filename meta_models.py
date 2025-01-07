@@ -57,7 +57,7 @@ class MetaNet(nn.Module):
         hin = torch.cat([hx, y_emb], dim=-1)
 
         logit = self.net(hin)
-
+        
         if self.args.skip:
             alpha = torch.sigmoid(logit[:, self.num_classes:])
             self.alpha = alpha.mean()
