@@ -142,7 +142,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     lmda = F.relu((0.5*norm_dq - dot)/(norm_dq + 1e-8))
     for i, param in enumerate(main_net.parameters()):
         param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
-    for i, param in enumerate(meta_net.parameters())
+    for i, param in enumerate(meta_net.parameters()):
         param.grad = lmda*grad_g_metaparam_new[i].data
     main_opt.step()
     meta_opt.step()
