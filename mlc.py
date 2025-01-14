@@ -87,28 +87,31 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     
     # tính gradient cho g ban đầu để chuẩn bị cho thuật toán BOME
     gradient_g_mainparam = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
-    gradient_g_metaparam = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True) 
+    gradient_g_metaparam = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True)
+    f_params_new = update_params(main_net.parameters(), gradient_g_mainparam, eta, main_opt, args, return_s=False)
+    for i, param in enumerate(main_net.parameters()):
+        param.data = f_params_new[i] 
     # cập nhật tham số mô hình main theo gradient g vừa tính được
     main_opt.step()
     main_opt.zero_grad()
-    for i in range (1):
-        # làm theo thuật toán BOME
-        logit_s, x_s_h = main_net(data_s, return_h=True)
-        pseudo_target_s = meta_net(x_s_h.detach(), target_s)
-        loss_s = soft_loss_f(logit_s, pseudo_target_s)
-        if data_c is not None:
-            bs1 = target_s.size(0)
-            bs2 = target_c.size(0)
+    # for i in range (1):
+    #     # làm theo thuật toán BOME
+    #     logit_s, x_s_h = main_net(data_s, return_h=True)
+    #     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
+    #     loss_s = soft_loss_f(logit_s, pseudo_target_s)
+    #     if data_c is not None:
+    #         bs1 = target_s.size(0)
+    #         bs2 = target_c.size(0)
 
-            logit_c = main_net(data_c)
-            loss_s2 = hard_loss_f(logit_c, target_c)
-            loss_s = (loss_s * bs1 + loss_s2 * bs2) / (bs1 + bs2)
-        g_grad = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
-        f_params_new = update_params(main_net.parameters(), g_grad, eta, main_opt, args, return_s=False)
-        for i, param in enumerate(main_net.parameters()):
-            param.data = f_params_new[i]
-        main_opt.step()
-        main_opt.zero_grad()
+    #         logit_c = main_net(data_c)
+    #         loss_s2 = hard_loss_f(logit_c, target_c)
+    #         loss_s = (loss_s * bs1 + loss_s2 * bs2) / (bs1 + bs2)
+    #     g_grad = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
+    #     f_params_new = update_params(main_net.parameters(), g_grad, eta, main_opt, args, return_s=False)
+    #     for i, param in enumerate(main_net.parameters()):
+    #         param.data = f_params_new[i]
+    #     main_opt.step()
+    #     main_opt.zero_grad()
     logit_s, x_s_h = main_net(data_s, return_h=True)
     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
     loss_s = soft_loss_f(logit_s, pseudo_target_s)
@@ -139,9 +142,9 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] + [zz])
     norm_dq = dq.norm().pow(2)
     dot = torch.dot(dq, df)
-    lmda = F.relu((0.5*norm_dq - dot)/(norm_dq + 1e-8))
+    lmda = F.relu((0.25*norm_dq - dot)/(norm_dq + 1e-8))
     for i, param in enumerate(main_net.parameters()):
-        param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
+        param.grad = gradient_f[i].data
     for i, param in enumerate(meta_net.parameters()):
         param.grad = lmda*grad_g_metaparam_new[i].data
     main_opt.step()
