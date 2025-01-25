@@ -19,9 +19,11 @@ class MetaNet(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(in_dim, self.hdim),
             nn.Tanh(),
+            nn.Dropout(0.3),  # Thêm Dropout để giảm overfitting
             nn.Linear(self.hdim, self.hdim),
             nn.Tanh(),
-            nn.Linear(self.hdim, num_classes + int(self.args.skip), bias=(not self.args.tie)) 
+            nn.BatchNorm1d(self.hdim),  # Batch Normalization
+            nn.Linear(self.hdim, num_classes + int(self.args.skip), bias=(not self.args.tie)),
         )
 
         if self.args.sparsemax:
