@@ -137,6 +137,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     gradient_f = torch.autograd.grad(loss_g, main_net.parameters(), create_graph=True)
     gradient_f_2 = torch.autograd.grad(loss_g, meta_net.parameters(), create_graph=True)
     main_opt.zero_grad()
+    meta_opt.zero_grad()
     n_params_meta = sum([p.numel() for p in meta_net.parameters()])
     zz = torch.zeros(n_params_meta, device='cuda')
     dq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))]
@@ -146,7 +147,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     dot = torch.dot(dq, df)
     lmda = F.relu((0.25*norm_dq - dot)/(norm_dq + 1e-8))
     for i, param in enumerate(main_net.parameters()):
-        param.grad = gradient_f[i].data
+        param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
     for i, param in enumerate(meta_net.parameters()):
         param.grad = lmda*grad_g_metaparam_new[i].data + gradient_f_2[i].data
     main_opt.step()

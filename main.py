@@ -162,7 +162,7 @@ def setup_training(main_net, meta_net, exp_id=None):
 
     if args.dataset in ['cifar10', 'cifar100']:
         # follow MW-Net setting
-        main_schdlr = torch.optim.lr_scheduler.MultiStepLR(main_opt, milestones=[80,100], gamma=0.1)
+        main_schdlr = torch.optim.lr_scheduler.MultiStepLR(main_opt, milestones=[40,60], gamma=0.1)
     elif args.dataset in ['clothing1m']:
         main_schdlr = torch.optim.lr_scheduler.MultiStepLR(main_opt, milestones=[5], gamma=0.1)
     else:
