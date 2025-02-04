@@ -39,15 +39,15 @@ class MetaNet(nn.Module):
     def init_weights(self):
         nn.init.xavier_uniform_(self.cls_emb.weight)
         nn.init.xavier_normal_(self.net[0].weight)
-        nn.init.xavier_normal_(self.net[2].weight)
-        nn.init.xavier_normal_(self.net[4].weight)
+        nn.init.xavier_normal_(self.net[3].weight)
+        nn.init.xavier_normal_(self.net[6].weight)
 
         self.net[0].bias.data.zero_()
-        self.net[2].bias.data.zero_()
+        self.net[3].bias.data.zero_()
 
         if not self.args.tie:
             assert self.in_class == self.num_classes, 'In and out classes conflict!'
-            self.net[4].bias.data.zero_()
+            self.net[6].bias.data.zero_()
 
     def get_alpha(self):
         return self.alpha if self.args.skip else torch.zeros(1)

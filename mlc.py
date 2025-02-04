@@ -81,11 +81,6 @@ def update_params_sgd(params, grads, eta, opt, args, deltaonly, return_s=False):
         return ans, ss
     else:
         return ans
-
- 
-
- 
-
 # ============== mlc step procedure debug with features (gradient-stopped) from main model ===========
 #
 # METANET uses the last K-1 steps from main model and imagine one additional step ahead
