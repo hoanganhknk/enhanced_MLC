@@ -2,8 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+ 
+
 def _concat(xs):
     return torch.cat([x.view(-1) for x in xs])
+
+ 
 
 @torch.no_grad()
 def update_params(params, grads, eta, opt, args, deltaonly=False, return_s=False):
@@ -12,23 +16,33 @@ def update_params(params, grads, eta, opt, args, deltaonly=False, return_s=False
     else:
         raise NotImplementedError('Non-supported main model optimizer type!')
 
+ 
+
 # be aware that the opt state dict returns references, hence take care not to
 # modify them
 def update_params_sgd(params, grads, eta, opt, args, deltaonly, return_s=False):
     # supports SGD-like optimizers
     ans = []
 
+ 
+
     if return_s:
         ss = []
+
+ 
 
     wdecay = opt.defaults['weight_decay']
     momentum = opt.defaults['momentum']
     dampening = opt.defaults['dampening']
     nesterov = opt.defaults['nesterov']
 
+ 
+
     for i, param in enumerate(params):
         dparam = grads[i] + param * wdecay # s=1
         s = 1
+
+ 
 
         if momentum > 0:
             try:
@@ -36,7 +50,11 @@ def update_params_sgd(params, grads, eta, opt, args, deltaonly, return_s=False):
             except:
                 moment = torch.zeros_like(param)
 
+ 
+
             moment.add_(dparam, alpha=1. -dampening) # s=1.-dampening
+
+ 
 
             if nesterov:
                 dparam = dparam + momentum * moment # s= 1+momentum*(1.-dampening)
@@ -45,19 +63,28 @@ def update_params_sgd(params, grads, eta, opt, args, deltaonly, return_s=False):
                 dparam = moment # s=1.-dampening
                 s = 1.-dampening
 
+ 
+
         if deltaonly:
             ans.append(- dparam * eta)
         else:
             ans.append(param - dparam  * eta)
 
+ 
+
         if return_s:
             ss.append(s*eta)
+
+ 
 
     if return_s:
         return ans, ss
     else:
         return ans
 
+ 
+
+ 
 
 # ============== mlc step procedure debug with features (gradient-stopped) from main model ===========
 #
@@ -77,9 +104,13 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
     loss_s = soft_loss_f(logit_s, pseudo_target_s)
 
+ 
+
     if data_c is not None:
         bs1 = target_s.size(0)
         bs2 = target_c.size(0)
+
+ 
 
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
@@ -94,30 +125,14 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     # cập nhật tham số mô hình main theo gradient g vừa tính được
     main_opt.step()
     main_opt.zero_grad()
-    # for i in range (1):
-    #     # làm theo thuật toán BOME
-    #     logit_s, x_s_h = main_net(data_s, return_h=True)
-    #     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
-    #     loss_s = soft_loss_f(logit_s, pseudo_target_s)
-    #     if data_c is not None:
-    #         bs1 = target_s.size(0)
-    #         bs2 = target_c.size(0)
-
-    #         logit_c = main_net(data_c)
-    #         loss_s2 = hard_loss_f(logit_c, target_c)
-    #         loss_s = (loss_s * bs1 + loss_s2 * bs2) / (bs1 + bs2)
-    #     g_grad = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
-    #     f_params_new = update_params(main_net.parameters(), g_grad, eta, main_opt, args, return_s=False)
-    #     for i, param in enumerate(main_net.parameters()):
-    #         param.data = f_params_new[i]
-    #     main_opt.step()
-    #     main_opt.zero_grad()
     logit_s, x_s_h = main_net(data_s, return_h=True)
     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
     loss_s = soft_loss_f(logit_s, pseudo_target_s)
     if data_c is not None:
         bs1 = target_s.size(0)
         bs2 = target_c.size(0)
+
+ 
 
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
