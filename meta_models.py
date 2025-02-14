@@ -1,3 +1,5 @@
+%%writefile /kaggle/working/enhanced_MLC/meta_models.py
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,27 +18,27 @@ label_names = {
     8: "ship",
     9: "truck"
 }
+embedding_model = KeyedVectors.load_word2vec_format("/kaggle/input/word2vec/pytorch/default/1/GoogleNews-vectors-negative300.bin", binary=True)
 def embedding_label(label_text):
-    embedding_model = KeyedVectors.load_word2vec_format("GoogleNews-vectors-negative300.bin", binary=True)
-    return torch.tensor(embedding_model[label_text])
+    return torch.tensor(embedding_model[label_text], device = 'cuda', requires_grad=True)
 class MetaNet(nn.Module):
     def __init__(self, hx_dim, cls_dim, h_dim, num_classes, args):
         super().__init__()
 
         self.args = args
-
         self.num_classes = num_classes        
         self.in_class = self.num_classes 
         self.hdim = h_dim
-        self.cls_emb = nn.Embedding(self.in_class, cls_dim)
         in_dim = hx_dim + cls_dim
 
         self.net = nn.Sequential(
             nn.Linear(in_dim, self.hdim),
             nn.Tanh(),
+            nn.Dropout(p = 0.3),
             nn.Linear(self.hdim, self.hdim),
             nn.Tanh(),
-            nn.Linear(self.hdim, num_classes + int(self.args.skip), bias=(not self.args.tie)) 
+            nn.BatchNorm1d(self.hdim), 
+            nn.Linear(self.hdim, num_classes + int(self.args.skip), bias=(not self.args.tie)),
         )
 
         if self.args.sparsemax:
@@ -45,29 +47,27 @@ class MetaNet(nn.Module):
 
         self.init_weights()
 
-        if self.args.tie:
-            print ('Tying cls emb to output cls weight')
-            self.net[-1].weight = self.cls_emb.weight
         
     def init_weights(self):
-        nn.init.xavier_uniform_(self.cls_emb.weight)
         nn.init.xavier_normal_(self.net[0].weight)
-        nn.init.xavier_normal_(self.net[2].weight)
-        nn.init.xavier_normal_(self.net[4].weight)
+        nn.init.xavier_normal_(self.net[3].weight)
+        nn.init.xavier_normal_(self.net[6].weight)
 
         self.net[0].bias.data.zero_()
-        self.net[2].bias.data.zero_()
+        self.net[3].bias.data.zero_()
 
         if not self.args.tie:
             assert self.in_class == self.num_classes, 'In and out classes conflict!'
-            self.net[4].bias.data.zero_()
+            self.net[6].bias.data.zero_()
 
     def get_alpha(self):
         return self.alpha if self.args.skip else torch.zeros(1)
 
     def forward(self, hx, y):
         bs = hx.size(0)
-        label_texts = [label_names[i] for i in y]
+        # Chuyển label số thành chữ
+        label_texts = [label_names[i.item()] for i in y]
+        
         y_emb = embedding_label(label_texts)
         hin = torch.cat([hx, y_emb], dim=-1)
 
