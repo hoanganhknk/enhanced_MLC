@@ -2,7 +2,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
+import numpy as np
+from gensim.models import KeyedVectors
+label_names = {
+    0: "airplane",
+    1: "automobile",
+    2: "bird",
+    3: "cat",
+    4: "deer",
+    5: "dog",
+    6: "frog",
+    7: "horse",
+    8: "ship",
+    9: "truck"
+}
+def embedding_label(label_text):
+    embedding_model = KeyedVectors.load_word2vec_format("GoogleNews-vectors-negative300.bin", binary=True)
+    return torch.tensor(embedding_model[label_text])
 class MetaNet(nn.Module):
     def __init__(self, hx_dim, cls_dim, h_dim, num_classes, args):
         super().__init__()
@@ -13,7 +29,6 @@ class MetaNet(nn.Module):
         self.in_class = self.num_classes 
         self.hdim = h_dim
         self.cls_emb = nn.Embedding(self.in_class, cls_dim)
-
         in_dim = hx_dim + cls_dim
 
         self.net = nn.Sequential(
@@ -52,8 +67,8 @@ class MetaNet(nn.Module):
 
     def forward(self, hx, y):
         bs = hx.size(0)
-
-        y_emb = self.cls_emb(y)
+        label_texts = [label_names[i] for i in y]
+        y_emb = embedding_label(label_texts)
         hin = torch.cat([hx, y_emb], dim=-1)
 
         logit = self.net(hin)

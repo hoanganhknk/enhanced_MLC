@@ -253,7 +253,6 @@ def test(main_net, test_loader): # this could be eval or test
         # forward
         with torch.no_grad():
             output = main_net(data)
-        
         # accuracy
         pred = output.data.max(1)[1]
         correct += pred.eq(target.data).sum().item()

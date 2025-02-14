@@ -22,6 +22,7 @@ class ResNet50(nn.Module):
     def forward(self, x, return_h=False): # (bs, C, H, W)
         pooled_output = self.resnet50(x)
         logit = self.fc(pooled_output)
+        logit = F.log_softmax(logit, dim=-1)
         if return_h:
             return logit, pooled_output
         else:
