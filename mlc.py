@@ -61,9 +61,10 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     # tính gradient cho g
     logit_g, x_s_h = main_net(data_g, return_h=True)
     target_g_from_meta = meta_net(x_s_h.detach(), target_g)
-    loss_g = hard_loss_f(0.8*logit_g + 0.2*target_g_from_meta, target_g)
-    gradient_f = torch.autograd.grad(loss_g, main_net.parameters(), create_graph=True, allow_unused=True)
-    gradient_f_2 = torch.autograd.grad(loss_g, meta_net.parameters(), create_graph=True, allow_unused=True)
+    loss_g = hard_loss_f(0.25*logit_g + 0.75*target_g_from_meta, target_g)
+    gradient_f = torch.autograd.grad(loss_g, main_net.parameters(), create_graph=True)
+    gradient_f = update_params(main_net.parameters(), gradient_f, eta, main_opt, args, deltaonly=True, return_s=False)
+    gradient_f_2 = torch.autograd.grad(loss_g, meta_net.parameters(), create_graph=True)
     main_opt.zero_grad()
     meta_opt.zero_grad()
     logit_s, x_s_h = main_net(data_s, return_h=True)
@@ -75,13 +76,15 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
         loss_s = (loss_s * bs1 + loss_s2 * bs2) / (bs1 + bs2)
-    
+
     # tính gradient cho g ban đầu để chuẩn bị cho thuật toán BOME
-    gradient_g_mainparam = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True, allow_unused=True)
-    gradient_g_metaparam = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True, allow_unused=True)
+    gradient_g_mainparam = torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True)
+    gradient_g_metaparam = torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True)
+    
     f_params_new = update_params(main_net.parameters(), gradient_g_mainparam, eta, main_opt, args, return_s=False)
     for i, param in enumerate(main_net.parameters()):
         param.data = f_params_new[i]
+        
     # cập nhật tham số mô hình main theo gradient g vừa tính được
     main_opt.step()
     main_opt.zero_grad()
@@ -94,30 +97,30 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
         loss_s = (loss_s * bs1 + loss_s2 * bs2) / (bs1 + bs2)
-    grad_g_mainparam_new = list(torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True, allow_unused=True))
-    grad_g_metaparam_new = list(torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True, allow_unused=True))
-    f_params_new = update_params(main_net.parameters(), grad_g_mainparam_new, eta, main_opt, args, return_s=False)
-    for i, param in enumerate(main_net.parameters()):
-        param.data = f_params_new[i]
+    grad_g_mainparam_new = list(torch.autograd.grad(loss_s, main_net.parameters(), create_graph=True))
+    grad_g_metaparam_new = list(torch.autograd.grad(loss_s, meta_net.parameters(), create_graph=True))
+
     for i in range(len(grad_g_mainparam_new)):
         grad_g_mainparam_new[i] = gradient_g_mainparam[i] - grad_g_mainparam_new[i]
     for i in range(len(grad_g_metaparam_new)):
         grad_g_metaparam_new[i] = gradient_g_metaparam[i] - grad_g_metaparam_new[i]
+
     n_params_meta = sum([p.numel() for p in meta_net.parameters()])
     zz = torch.zeros(n_params_meta, device='cuda')
     dq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))]
                     + [grad_g_metaparam_new[i].view(-1) for i in range(len(grad_g_metaparam_new))])
-    df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] + [zz])
+    df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] + [gradient_f_2[i].view(-1) for i in range(len(gradient_f_2))])
     norm_dq = dq.norm().pow(2)
     dot = torch.dot(dq, df)
-    lmda = F.relu((0.1*norm_dq - dot)/(norm_dq + 1e-10))
+    lmda = F.relu((0.25*norm_dq - dot)/(norm_dq + 1e-8))
     for i, param in enumerate(main_net.parameters()):
         param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
     for i, param in enumerate(meta_net.parameters()):
         param.grad = lmda*grad_g_metaparam_new[i].data + gradient_f_2[i].data
+        # param.grad = lmda*grad_g_metaparam_new[i].data
     main_opt.step()
     meta_opt.step()
     main_opt.zero_grad()
     meta_opt.zero_grad()
     # tính gradient mới cho g
-    return loss_s, loss_g
+    return loss_g, loss_s
