@@ -3,30 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import numpy as np
-from gensim.models import KeyedVectors
-label_names = {
-    0: "airplane",
-    1: "automobile",
-    2: "bird",
-    3: "cat",
-    4: "deer",
-    5: "dog",
-    6: "frog",
-    7: "horse",
-    8: "ship",
-    9: "truck"
-}
-embedding_model = KeyedVectors.load_word2vec_format("/kaggle/input/word2vec/pytorch/default/1/GoogleNews-vectors-negative300.bin", binary=True)
-def embedding_label(label_text):
-    return torch.tensor(embedding_model[label_text], device = 'cuda', requires_grad=True)
 class MetaNet(nn.Module):
     def __init__(self, hx_dim, cls_dim, h_dim, num_classes, args):
         super().__init__()
 
         self.args = args
+
         self.num_classes = num_classes        
         self.in_class = self.num_classes 
         self.hdim = h_dim
+        self.cls_emb = nn.Embedding(self.in_class, cls_dim)
+
         in_dim = hx_dim + cls_dim
 
         self.net = nn.Sequential(
@@ -44,6 +31,10 @@ class MetaNet(nn.Module):
             self.sparsemax = Sparsemax(-1)
 
         self.init_weights()
+
+        if self.args.tie:
+            print ('Tying cls emb to output cls weight')
+            self.net[-1].weight = self.cls_emb.weight
 
         
     def init_weights(self):
@@ -63,10 +54,8 @@ class MetaNet(nn.Module):
 
     def forward(self, hx, y):
         bs = hx.size(0)
-        # Chuyển label số thành chữ
-        label_texts = [label_names[i.item()] for i in y]
-        
-        y_emb = embedding_label(label_texts)
+
+        y_emb = self.cls_emb(y)
         hin = torch.cat([hx, y_emb], dim=-1)
 
         logit = self.net(hin)
