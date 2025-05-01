@@ -61,7 +61,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     # tính gradient cho g
     logit_g, x_s_h = main_net(data_g, return_h=True)
     target_g_from_meta = meta_net(x_s_h.detach(), target_g)
-    loss_g = hard_loss_f(0.2*logit_g + 0.8*target_g_from_meta, target_g)
+    loss_g = hard_loss_f(0.25*logit_g + 0.75*target_g_from_meta, target_g)
     gradient_f = torch.autograd.grad(loss_g, main_net.parameters(), create_graph=True)
     gradient_f = update_params(main_net.parameters(), gradient_f, eta, main_opt, args, deltaonly=True, return_s=False)
     gradient_f_2 = torch.autograd.grad(loss_g, meta_net.parameters(), create_graph=True)
@@ -84,7 +84,6 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     f_params_new = update_params(main_net.parameters(), gradient_g_mainparam, eta, main_opt, args, return_s=False)
     for i, param in enumerate(main_net.parameters()):
         param.data = f_params_new[i]
-        
     # cập nhật tham số mô hình main theo gradient g vừa tính được
     main_opt.step()
     main_opt.zero_grad()
@@ -102,25 +101,28 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     # f_params_new = update_params(main_net.parameters(), grad_g_mainparam_new, eta, main_opt, args, return_s=False)
     # for i, param in enumerate(main_net.parameters()):
     #     param.data = f_params_new[i]
+    
     for i in range(len(grad_g_mainparam_new)):
         grad_g_mainparam_new[i] = gradient_g_mainparam[i] - grad_g_mainparam_new[i]
     for i in range(len(grad_g_metaparam_new)):
         grad_g_metaparam_new[i] = gradient_g_metaparam[i] - grad_g_metaparam_new[i]
-
+    
     n_params_meta = sum([p.numel() for p in meta_net.parameters()])
-    zz = torch.zeros(n_params_meta, device='cuda')
     dq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))]
-                     + [grad_g_metaparam_new[i].view(-1) for i in range(len(grad_g_metaparam_new))])
-    # df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] + [gradient_f_2[i].view(-1) for i in range(len(gradient_f_2))])
-    dw_q = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))])
-    df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))])
-    dot = torch.dot(dw_q, df)
+                    + [grad_g_metaparam_new[i].view(-1) for i in range(len(grad_g_metaparam_new))])
+    d_wq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))])
+    df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] )
     norm_dq = dq.norm().pow(2)
-    lmda = 0.5*F.relu((0.25*norm_dq - dot)/(norm_dq + 1e-8))
+    dot = torch.dot(d_wq, df)
+    lmda = 0.25*F.relu((0.2*norm_dq - dot)/(norm_dq + 1e-8))
+    
+    grad_g_mainparam_new = update_params(main_net.parameters(), grad_g_mainparam_new, eta, main_opt, args, deltaonly=True, return_s=False)
+    
     for i, param in enumerate(main_net.parameters()):
         param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
     for i, param in enumerate(meta_net.parameters()):
         param.grad = lmda*grad_g_metaparam_new[i].data + gradient_f_2[i].data
+        # param.grad = lmda*grad_g_metaparam_new[i].data
     main_opt.step()
     meta_opt.step()
     main_opt.zero_grad()
