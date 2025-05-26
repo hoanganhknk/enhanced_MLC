@@ -84,9 +84,6 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     f_params_new = update_params(main_net.parameters(), gradient_g_mainparam, eta, main_opt, args, return_s=False)
     for i, param in enumerate(main_net.parameters()):
         param.data = f_params_new[i]
-    # cập nhật tham số mô hình main theo gradient g vừa tính được
-    main_opt.step()
-    main_opt.zero_grad()
     logit_s, x_s_h = main_net(data_s, return_h=True)
     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
     loss_s = soft_loss_f(logit_s, pseudo_target_s)
