@@ -43,7 +43,7 @@ parser.add_argument('--opt_eps', default=1e-8, type=float, help='eps for optimiz
 parser.add_argument('--wdecay', default=5e-4, type=float, help='weight decay (default: 5e-4)')
 
 # noise parameters
-parser.add_argument('--corruption_type', default='unif', type=str, choices=['unif', 'flip'])
+parser.add_argument('--corruption_type', default='unif', type=str, choices=['unif', 'flip', 'instance_dependent'])
 parser.add_argument('--corruption_level', default='-1', type=float, help='Corruption level')
 parser.add_argument('--gold_fraction', default='-1', type=float, help='Gold fraction')
 
