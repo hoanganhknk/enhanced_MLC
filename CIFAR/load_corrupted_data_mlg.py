@@ -45,7 +45,61 @@ def flip_labels_C_two(corruption_prob, num_classes, seed=1):
     for i in range(num_classes):
         C[i][np.random.choice(row_indices[row_indices != i], 2, replace=False)] = corruption_prob / 2
     return C
+def instance_dependent_labels_noise(n, dataset, labels, num_classes, feature_size, norm_std=0.1, seed=1): 
+    from scipy import stats
 
+    print("building instance-dependent noisy labels...")
+
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+    label_num = num_classes
+
+    flip_distribution = stats.truncnorm((0 - n) / norm_std, (1 - n) / norm_std, loc=n, scale=norm_std)
+    flip_rate = flip_distribution.rvs(len(labels))
+    flip_rate = np.clip(flip_rate, 0.0, 1.0)
+
+    if isinstance(labels, list):
+        labels = torch.LongTensor(labels)
+    if torch.cuda.is_available():
+        labels = labels.cuda()
+
+    W = np.random.randn(label_num, feature_size, label_num)
+    W = torch.FloatTensor(W)
+    if torch.cuda.is_available():
+        W = W.cuda()
+
+    P = []
+
+    for i, (x, y) in enumerate(dataset):
+        if isinstance(x, Image.Image):
+            x = transforms.ToTensor()(x)
+        if torch.cuda.is_available():
+            x = x.cuda()
+
+        x = x.view(1, -1)
+        logits = x.mm(W[y])  
+        logits = logits.squeeze(0) 
+
+        logits[y] = -float("inf")  
+        A = flip_rate[i] * F.softmax(logits, dim=0)
+        A[y] = 1.0 - flip_rate[i]  
+
+        P.append(A)
+
+    P = torch.stack(P, dim=0).cpu().numpy()
+
+    l = list(range(label_num))
+    new_labels = [np.random.choice(l, p=P[i]) for i in range(len(labels))]
+
+    transition_counts = np.zeros((label_num, label_num), dtype=np.int32)
+    for a, b in zip(labels.cpu().numpy().astype(int), new_labels):
+        transition_counts[a, b] += 1
+
+    C = transition_counts / transition_counts.sum(axis=1, keepdims=True)
+
+    return C
 
 class CIFAR10(data.Dataset):
     base_folder = 'cifar-10-batches-py'
@@ -167,6 +221,10 @@ class CIFAR10(data.Dataset):
                             C[tmp[j], tmp2] += corruption_prob * 1/len(tmp2)
                     self.C = C
                     print(C)
+                elif corruption_type == 'instance_dependent':
+                    C = instance_dependent_labels_noise(self.corruption_prob, self, self.train_labels, num_classes, 32*32*3, 0.1, seed)
+                    print(C)
+                    self.C = C
                 else:
                     assert False, "Invalid corruption type '{}' given. Must be in {'unif', 'flip', 'hierarchical'}".format(corruption_type)
 
