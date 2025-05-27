@@ -14,6 +14,8 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+torch.use_deterministic_algorithms(True)
 
 def uniform_mix_C(mixing_ratio, num_classes):
     '''
@@ -50,7 +52,8 @@ def instance_dependent_labels_noise(n, dataset, labels, num_classes, feature_siz
 
     print("building instance-dependent noisy labels...")
 
-    np.random.seed(seed)
+    rng = np.random.default_rng(seed)  # dùng Generator thay thế toàn bộ np.random
+
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
@@ -65,13 +68,12 @@ def instance_dependent_labels_noise(n, dataset, labels, num_classes, feature_siz
     if torch.cuda.is_available():
         labels = labels.cuda()
 
-    W = np.random.randn(label_num, feature_size, label_num)
+    W = rng.standard_normal((label_num, feature_size, label_num))
     W = torch.FloatTensor(W)
     if torch.cuda.is_available():
         W = W.cuda()
 
     P = []
-
     for i, (x, y) in enumerate(dataset):
         if isinstance(x, Image.Image):
             x = transforms.ToTensor()(x)
@@ -79,19 +81,17 @@ def instance_dependent_labels_noise(n, dataset, labels, num_classes, feature_siz
             x = x.cuda()
 
         x = x.view(1, -1)
-        logits = x.mm(W[y])  
-        logits = logits.squeeze(0) 
+        logits = x.mm(W[y])
+        logits = logits.squeeze(0)
 
-        logits[y] = -float("inf")  
+        logits[y] = -float("inf")
         A = flip_rate[i] * F.softmax(logits, dim=0)
-        A[y] = 1.0 - flip_rate[i]  
-
+        A[y] = 1.0 - flip_rate[i]
         P.append(A)
 
     P = torch.stack(P, dim=0).cpu().numpy()
-
     l = list(range(label_num))
-    new_labels = [np.random.choice(l, p=P[i]) for i in range(len(labels))]
+    new_labels = [rng.choice(l, p=P[i]) for i in range(len(labels))]
 
     transition_counts = np.zeros((label_num, label_num), dtype=np.int32)
     for a, b in zip(labels.cpu().numpy().astype(int), new_labels):
