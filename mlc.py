@@ -65,8 +65,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     gradient_f = torch.autograd.grad(loss_g, main_net.parameters(), create_graph=True)
     gradient_f = update_params(main_net.parameters(), gradient_f, eta, main_opt, args, deltaonly=True, return_s=False)
     gradient_f_2 = torch.autograd.grad(loss_g, meta_net.parameters(), create_graph=True)
-    main_opt.zero_grad()
-    meta_opt.zero_grad()
+
     logit_s, x_s_h = main_net(data_s, return_h=True)
     pseudo_target_s = meta_net(x_s_h.detach(), target_s)
     loss_s = soft_loss_f(logit_s, pseudo_target_s)
