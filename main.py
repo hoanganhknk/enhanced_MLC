@@ -338,13 +338,6 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                 writer.add_scalar('train/loss_g', loss_g.item(), args.steps)
                 writer.add_scalar('train/loss_s', loss_s.item(), args.steps)
 
-                ''' get entropy of predictions from meta-net '''
-                logit_s, x_s_h = main_net(data_s, return_h=True)
-                pseudo_target_s = meta_net(x_s_h.detach(), target_s_).detach()
-                entropy = -(pseudo_target_s * torch.log(pseudo_target_s+1e-10)).sum(-1).mean()
-
-                writer.add_scalar('train/meta_entropy', entropy.item(), args.steps)
-
                 main_lr = main_schdlr.get_lr()[0]
                 meta_lr = scheduler.get_lr()[0]
                 writer.add_scalar('train/main_lr', main_lr, args.steps)
