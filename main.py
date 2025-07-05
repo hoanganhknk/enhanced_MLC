@@ -14,7 +14,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
-
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 from mlc import step_hmlc_K
 from mlc_utils import clone_parameters, tocuda, DummyScheduler
 
@@ -238,7 +239,7 @@ def run():
     with open('out/' + filename, 'wb') as file:
         pickle.dump(results, file)
     logger.info("Dumped results_ours in file: " + filename)
-
+    
 def test(main_net, test_loader): # this could be eval or test
     # //////////////////////// evaluate method ////////////////////////
     correct = torch.zeros(1).cuda()
