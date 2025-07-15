@@ -8,14 +8,13 @@ import os
 from logger import get_logger
 from tqdm import tqdm
 from collections import deque
-
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
+
 from mlc import step_hmlc_K
 from mlc_utils import clone_parameters, tocuda, DummyScheduler
 
@@ -219,7 +218,8 @@ def run():
             # //////////////////////// load data //////////////////////////////
             # use data_seed her
             gold_loader, silver_loader, valid_loader, test_loader, num_classes = get_data(args.dataset, gold_fraction, corruption_level, corruption_fnctn)
-            
+            exp_id = '_'.join([filename, str(gold_fraction), str(corruption_level)])
+            plot_noisy_confusion_matrix(silver_loader.dataset, num_classes, exp_id)
             # //////////////////////// build main_net and meta_net/////////////
             main_net, meta_net = build_models(args.dataset, num_classes)
             
@@ -239,7 +239,7 @@ def run():
     with open('out/' + filename, 'wb') as file:
         pickle.dump(results, file)
     logger.info("Dumped results_ours in file: " + filename)
-    
+
 def test(main_net, test_loader): # this could be eval or test
     # //////////////////////// evaluate method ////////////////////////
     correct = torch.zeros(1).cuda()
@@ -335,11 +335,18 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                                              eta, args)
             args.steps += 1
             if i % args.every == 0:
-                # compute loss g only rely on main model
-                logit_g = main_net(data_g, return_h=False)
-                loss_g_print = hard_loss_f(logit_g, target_g)
-                writer.add_scalar('train/loss_g', loss_g_print.item(), args.steps)
+                # compute loss g rely only on main net parameters
+                logit = main_net(data_g, return_h=False)
+                loss = hard_loss_f(logit, target_g)
+                writer.add_scalar('train/loss_g', loss.item(), args.steps)
                 writer.add_scalar('train/loss_s', loss_s.item(), args.steps)
+
+                ''' get entropy of predictions from meta-net '''
+                logit_s, x_s_h = main_net(data_s, return_h=True)
+                pseudo_target_s = meta_net(x_s_h.detach(), target_s_).detach()
+                entropy = -(pseudo_target_s * torch.log(pseudo_target_s+1e-10)).sum(-1).mean()
+
+                writer.add_scalar('train/meta_entropy', entropy.item(), args.steps)
 
                 main_lr = main_schdlr.get_lr()[0]
                 meta_lr = scheduler.get_lr()[0]
@@ -347,7 +354,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                 writer.add_scalar('train/meta_lr', meta_lr, args.steps)
                 writer.add_scalar('train/gradient_steps', args.gradient_steps, args.steps)
 
-                logger.info('Iteration %d loss_s: %.4f\tloss_g: %.4f\tMain LR: %.8f\tMeta LR: %.8f' %( i, loss_s.item(), loss_g.item(), main_lr, meta_lr))
+                logger.info('Iteration %d loss_s: %.4f\tloss_g: %.4f\tMeta entropy: %.3f\tMain LR: %.8f\tMeta LR: %.8f' %( i, loss_s.item(), loss_g.item(), entropy.item(), main_lr, meta_lr))
 
         # PER EPOCH PROCESSING
 
@@ -407,8 +414,95 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
 
     writer.add_scalar('test/acc', test_acc, args.steps) # this test_acc should be roughly the best as it's taken from the best iteration
     logger.info('Test acc: %.4f' % test_acc)
-
+    print('Evaluating label correction via meta model...')
+    matrix = evaluate_meta_model(meta_net, main_net, silver_loader.dataset, device='cuda')
+    np.save(f'meta_correction_heatmap_{exp_id}.npy', matrix)
+    print(f'Saved correction matrix to meta_correction_heatmap_{exp_id}.npy')
+    plot_and_save_heatmap(matrix, exp_id, 10)
+    print(f'Saved correction heatmap to correction_heatmap_{exp_id}.png và .pdf')
     return test_acc, 0 
+def evaluate_meta_model(meta_net, main_net, dataset, device='cuda'):
+    from torch.utils.data import DataLoader
+    import numpy as np
+    from tqdm import tqdm
+
+    loader = DataLoader(dataset, batch_size=128, shuffle=False, num_workers=2)
+
+    num_classes = meta_net.num_classes
+    matrix = np.zeros((num_classes, num_classes), dtype=int)
+
+    with torch.no_grad():
+        for idx, (x, y_noisy) in enumerate(tqdm(loader)):
+            x = x.to(device)
+            y_noisy = y_noisy.to(device)
+            _, features = main_net(x, return_h=True)
+            pseudo = meta_net(features, y_noisy)
+            corrected = pseudo.argmax(dim=1).cpu().numpy()
+
+            for i in range(x.size(0)):
+                true_label = dataset.original_labels[idx * loader.batch_size + i]
+                matrix[true_label][corrected[i]] += 1
+
+    return matrix
+def plot_and_save_heatmap(matrix, exp_id, num_classes, cmap='Blues'):
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(8, 6))
+    im = plt.imshow(matrix, interpolation='nearest', cmap=cmap)
+    plt.title('Correction Heatmap')
+    plt.xlabel('Predicted (corrected) label')
+    plt.ylabel('Original (noisy) label')
+    plt.colorbar(im)
+    plt.xticks(range(num_classes))
+    plt.yticks(range(num_classes))
+
+    normed = (matrix - matrix.min()) / (matrix.max() - matrix.min() + 1e-9)
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            color = "white" if normed[i, j] > 0.5 else "black"
+            plt.text(j, i, str(matrix[i, j]),
+                     ha="center", va="center",
+                     color=color,
+                     fontsize=10, fontweight='bold')
+
+    plt.tight_layout()
+    plt.savefig(f'correction_heatmap_{exp_id}.png', dpi=300)
+    plt.savefig(f'correction_heatmap_{exp_id}.pdf')
+    plt.close()
+def plot_noisy_confusion_matrix(dataset, num_classes, exp_id, cmap='Reds'):
+    noisy = np.array(dataset.train_labels)
+    if hasattr(dataset, "original_labels"):
+        true = np.array(dataset.original_labels)
+    else:
+        print("Warning: Dataset does not have original labels. Cannot plot confusion matrix.")
+        return
+    matrix = np.zeros((num_classes, num_classes), dtype=int)
+    for i in range(len(noisy)):
+        matrix[true[i], noisy[i]] += 1
+
+    plt.figure(figsize=(8, 6))
+    im = plt.imshow(matrix, interpolation='nearest', cmap=cmap)
+    plt.title('Noise Confusion Matrix\nRows: True label, Cols: Noisy label')
+    plt.xlabel('Noisy (false) label')
+    plt.ylabel('True label')
+    plt.colorbar(im)
+    plt.xticks(range(num_classes))
+    plt.yticks(range(num_classes))
+    normed = (matrix - matrix.min()) / (matrix.max() - matrix.min() + 1e-9)
+    for i in range(num_classes):
+        for j in range(num_classes):
+            color = "white" if normed[i, j] > 0.5 else "black"
+            plt.text(j, i, str(matrix[i, j]),
+                     ha="center", va="center",
+                     color=color,
+                     fontsize=10, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(f'noisy_confusion_{exp_id}.png', dpi=300)
+    plt.savefig(f'noisy_confusion_{exp_id}.pdf')
+    plt.close()
+    print("Noisy confusion matrix saved as images.")
+    print(matrix)
+    return matrix
 
 if __name__ == '__main__':
     run()

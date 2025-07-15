@@ -128,7 +128,7 @@ class CIFAR10(data.Dataset):
         self.meta = meta
         self.corruption_prob = corruption_prob
         self.num_meta = num_meta
-
+        self.original_labels = None
         if download:
             self.download()
 
@@ -184,9 +184,11 @@ class CIFAR10(data.Dataset):
             if meta is True:
                 self.train_data = self.train_data[idx_to_meta]
                 self.train_labels = list(np.array(self.train_labels)[idx_to_meta])
+                self.original_labels = self.train_labels.copy()
             else:
                 self.train_data = self.train_data[idx_to_train]
                 self.train_labels = list(np.array(self.train_labels)[idx_to_train])
+                self.original_labels = self.train_labels.copy()
                 if corruption_type == 'hierarchical':
                     self.train_coarse_labels = list(np.array(self.train_coarse_labels)[idx_to_meta])
 
@@ -227,7 +229,6 @@ class CIFAR10(data.Dataset):
                     self.C = C
                 else:
                     assert False, "Invalid corruption type '{}' given. Must be in {'unif', 'flip', 'hierarchical'}".format(corruption_type)
-
                 np.random.seed(seed)
                 for i in range(len(self.train_labels)):
                     self.train_labels[i] = np.random.choice(num_classes, p=C[self.train_labels[i]])
