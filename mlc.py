@@ -86,7 +86,6 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
         grad_g_mainparam_new[i] = gradient_g_mainparam[i] - grad_g_mainparam_new[i]
     for i in range(len(grad_g_metaparam_new)):
         grad_g_metaparam_new[i] = gradient_g_metaparam[i] - grad_g_metaparam_new[i]
-    
     n_params_meta = sum([p.numel() for p in meta_net.parameters()])
     dq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))]
                     + [grad_g_metaparam_new[i].view(-1) for i in range(len(grad_g_metaparam_new))])
@@ -95,7 +94,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     norm_dq = dq.norm().pow(2)
     dot = torch.dot(d_wq, df)
     lmda = 0.5*F.relu((0.2*norm_dq - dot)/(norm_dq + 1e-8))
-
+    grad_g_mainparam_new = update_params(main_net.parameters(), grad_g_mainparam_new, eta, main_opt, args, deltaonly=True, return_s=False)
     for i, param in enumerate(main_net.parameters()):
         param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
     for i, param in enumerate(meta_net.parameters()):
