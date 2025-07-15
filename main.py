@@ -335,7 +335,10 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                                              eta, args)
             args.steps += 1
             if i % args.every == 0:
-                writer.add_scalar('train/loss_g', loss_g.item(), args.steps)
+                # compute loss g only rely on main model
+                logit_g = main_net(data_g, return_h=False)
+                loss_g_print = hard_loss_f(logit_g, target_g)
+                writer.add_scalar('train/loss_g', loss_g_print.item(), args.steps)
                 writer.add_scalar('train/loss_s', loss_s.item(), args.steps)
 
                 main_lr = main_schdlr.get_lr()[0]
