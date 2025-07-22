@@ -51,6 +51,8 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     target_g_from_meta = meta_net(x_s_h.detach(), target_g)
     loss_g = hard_loss_f(0.2*logit_g + 0.8*target_g_from_meta, target_g)
     gradient_f = torch.autograd.grad(loss_g, main_net.parameters(), create_graph=True)
+    # trả về norm của gradient_f
+    gradient_f_norm = _concat(gradient_f).norm()
     gradient_f = update_params(main_net.parameters(), gradient_f, eta, main_opt, args, deltaonly=True, return_s=False)
     gradient_f_2 = torch.autograd.grad(loss_g, meta_net.parameters(), create_graph=True)
 
@@ -103,4 +105,4 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     meta_opt.step()
     main_opt.zero_grad()
     meta_opt.zero_grad()
-    return loss_g, loss_s
+    return loss_g, loss_s, gradient_f_norm

@@ -310,7 +310,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
             # bi-level optimization stage
             eta = main_schdlr.get_lr()[0]
             if args.method == 'hmlc_K':
-                loss_g, loss_s = step_hmlc_K(main_net, main_opt, hard_loss_f,
+                loss_g, loss_s, gradient_f_norm = step_hmlc_K(main_net, main_opt, hard_loss_f,
                                              meta_net, optimizer, soft_loss_f,
                                              data_s, target_s_, data_g, target_g,
                                              None, None,
@@ -328,7 +328,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                     
                 target_c = target_g[gbs:]
                 target_g = target_g[:gbs]
-                loss_g, loss_s = step_hmlc_K(main_net, main_opt, hard_loss_f,
+                loss_g, loss_s, gradient_f_norm = step_hmlc_K(main_net, main_opt, hard_loss_f,
                                              meta_net, optimizer, soft_loss_f,
                                              data_s, target_s_, data_g, target_g,
                                              data_c, target_c,
@@ -340,14 +340,14 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                 loss = hard_loss_f(logit, target_g)
                 writer.add_scalar('train/loss_g', loss.item(), args.steps)
                 writer.add_scalar('train/loss_s', loss_s.item(), args.steps)
-
+                writer.add_scalar('train/gradient_f_norm', gradient_f_norm.item(), args.steps)
                 main_lr = main_schdlr.get_lr()[0]
                 meta_lr = scheduler.get_lr()[0]
                 writer.add_scalar('train/main_lr', main_lr, args.steps)
                 writer.add_scalar('train/meta_lr', meta_lr, args.steps)
                 writer.add_scalar('train/gradient_steps', args.gradient_steps, args.steps)
 
-                logger.info('Iteration %d loss_s: %.4f\tloss_g: %.4f\tMain LR: %.8f\tMeta LR: %.8f' %( i, loss_s.item(), loss.item(), main_lr, meta_lr))
+                logger.info('Iteration %d loss_s: %.4f\tloss_g: %.4f\tMain LR: %.8f\tMeta LR: %.8f\tGradient Norm: %.8f' %( i, loss_s.item(), loss.item(), main_lr, meta_lr, gradient_f_norm.item()))
         # PER EPOCH PROCESSING
 
         # lr scheduler
