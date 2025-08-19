@@ -406,12 +406,12 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
 
     writer.add_scalar('test/acc', test_acc, args.steps) # this test_acc should be roughly the best as it's taken from the best iteration
     logger.info('Test acc: %.4f' % test_acc)
-    print('Evaluating label correction via meta model...')
-    matrix = evaluate_meta_model(meta_net, main_net, silver_loader.dataset, device='cuda')
-    np.save(f'meta_correction_heatmap_{exp_id}.npy', matrix)
-    print(f'Saved correction matrix to meta_correction_heatmap_{exp_id}.npy')
-    plot_and_save_heatmap(matrix, exp_id, 10)
-    print(f'Saved correction heatmap to correction_heatmap_{exp_id}.png và .pdf')
+    # print('Evaluating label correction via meta model...')
+    # matrix = evaluate_meta_model(meta_net, main_net, silver_loader.dataset, device='cuda')
+    # np.save(f'meta_correction_heatmap_{exp_id}.npy', matrix)
+    # print(f'Saved correction matrix to meta_correction_heatmap_{exp_id}.npy')
+    # plot_and_save_heatmap(matrix, exp_id, 10)
+    # print(f'Saved correction heatmap to correction_heatmap_{exp_id}.png và .pdf')
     return test_acc, 0 
 def evaluate_meta_model(meta_net, main_net, dataset, device='cuda'):
     from torch.utils.data import DataLoader
