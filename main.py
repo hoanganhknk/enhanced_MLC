@@ -346,7 +346,6 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                 meta_lr = scheduler.get_lr()[0]
                 writer.add_scalar('train/main_lr', main_lr, args.steps)
                 writer.add_scalar('train/meta_lr', meta_lr, args.steps)
-                writer.add_scalar('train/gradient_steps', args.gradient_steps, args.steps)
 
                 logger.info('Iteration %d loss_s: %.4f\tloss_g: %.4f\tMain LR: %.8f\tMeta LR: %.8f\t' %( i, loss_s.item(), loss.item(), main_lr, meta_lr))
         # PER EPOCH PROCESSING
