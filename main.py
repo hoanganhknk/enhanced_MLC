@@ -219,7 +219,7 @@ def run():
             # use data_seed her
             gold_loader, silver_loader, valid_loader, test_loader, num_classes = get_data(args.dataset, gold_fraction, corruption_level, corruption_fnctn)
             exp_id = '_'.join([filename, str(gold_fraction), str(corruption_level)])
-            plot_noisy_confusion_matrix(silver_loader.dataset, num_classes, exp_id)
+            # plot_noisy_confusion_matrix(silver_loader.dataset, num_classes, exp_id)
             # //////////////////////// build main_net and meta_net/////////////
             main_net, meta_net = build_models(args.dataset, num_classes)
             
