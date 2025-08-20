@@ -39,7 +39,6 @@ parser.add_argument('--main_lr', default=3e-4, type=float, help='lr for main net
 parser.add_argument('--meta_lr', default=3e-5, type=float, help='lr for meta net')
 parser.add_argument('--optimizer', default='adam', type=str, choices=['adam', 'sgd', 'adadelta'])
 parser.add_argument('--opt_eps', default=1e-8, type=float, help='eps for optimizers')
-#parser.add_argument('--tau', default=1, type=float, help='tau')
 parser.add_argument('--wdecay', default=5e-4, type=float, help='weight decay (default: 5e-4)')
 
 # noise parameters
@@ -54,7 +53,7 @@ parser.add_argument('--tie', default=False, action='store_true', help='Tie label
 parser.add_argument('--runid', default='exp', type=str)
 parser.add_argument('--queue_size', default=1, type=int, help='Number of iterations before to compute mean loss_g')
 
-############## LOOK-AHEAD GRADIENT STEPS FOR MLC ##################
+############## Hyperparameters ##################
 parser.add_argument('--rho', default=0.2, type=float)
 parser.add_argument('--m', default=0.5, type=float)
 parser.add_argument('--delta', default=0.25, type=float)
