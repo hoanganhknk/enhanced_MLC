@@ -92,7 +92,7 @@ def step_hmlc_K(main_net, main_opt, hard_loss_f,
     df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] )
     norm_dq = dq.norm().pow(2)
     dot = torch.dot(d_wq, df)
-    lmda = 0.5*F.relu((0.2*norm_dq - dot)/(norm_dq + 1e-8))
+    lmda = 0.5*F.relu((0.25*norm_dq - dot)/(norm_dq + 1e-8))
     grad_g_mainparam_new = update_params(main_net.parameters(), grad_g_mainparam_new, eta, main_opt, args, deltaonly=True, return_s=False)
     for i, param in enumerate(main_net.parameters()):
         param.grad = lmda*grad_g_mainparam_new[i].data + gradient_f[i].data
