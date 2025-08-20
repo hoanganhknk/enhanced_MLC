@@ -55,8 +55,9 @@ parser.add_argument('--runid', default='exp', type=str)
 parser.add_argument('--queue_size', default=1, type=int, help='Number of iterations before to compute mean loss_g')
 
 ############## LOOK-AHEAD GRADIENT STEPS FOR MLC ##################
-parser.add_argument('--gradient_steps', default=1, type=int, help='Number of look-ahead gradient steps for meta-gradient (default: 1)')
-
+parser.add_argument('--rho', default=0.2, type=float)
+parser.add_argument('--m', default=0.5, type=float)
+parser.add_argument('--delta', default=0.25, type=float)
 # CIFAR
 # Positional arguments
 parser.add_argument('--data_path', default='data', type=str, help='Root for the datasets.')
