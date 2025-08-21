@@ -40,7 +40,7 @@ def update_params_sgd(params, grads, eta, opt, args, deltaonly, return_s=False):
         return ans, ss
     else:
         return ans
-def step_hmlc_K(main_net, main_opt, hard_loss_f,
+def step_ebomlc(main_net, main_opt, hard_loss_f,
                 meta_net, meta_opt, soft_loss_f,
                 data_s, target_s, data_g, target_g,
                 data_c, target_c, 

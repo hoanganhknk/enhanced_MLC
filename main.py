@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 
-from mlc import step_hmlc_K
+from ebomlc import step_ebomlc
 from mlc_utils import clone_parameters, tocuda, DummyScheduler
 
 from models import *       
@@ -310,7 +310,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
             # bi-level optimization stage
             eta = main_schdlr.get_lr()[0]
             if args.method == 'hmlc_K':
-                loss_g, loss_s = step_hmlc_K(main_net, main_opt, hard_loss_f,
+                loss_g, loss_s = step_ebomlc(main_net, main_opt, hard_loss_f,
                                              meta_net, optimizer, soft_loss_f,
                                              data_s, target_s_, data_g, target_g,
                                              None, None,
@@ -328,7 +328,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                     
                 target_c = target_g[gbs:]
                 target_g = target_g[:gbs]
-                loss_g, loss_s= step_hmlc_K(main_net, main_opt, hard_loss_f,
+                loss_g, loss_s= step_ebomlc(main_net, main_opt, hard_loss_f,
                                              meta_net, optimizer, soft_loss_f,
                                              data_s, target_s_, data_g, target_g,
                                              data_c, target_c,
