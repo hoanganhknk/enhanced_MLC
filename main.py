@@ -23,7 +23,6 @@ from meta_models import *
 
 parser = argparse.ArgumentParser(description='MLC Training Framework')
 parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100', 'clothing1m'], default='cifar10')
-parser.add_argument('--method', default='hmlc_K_mix', type=str, choices=['hmlc_K_mix', 'hmlc_K'])
 parser.add_argument('--seed', type=int, default=1) 
 parser.add_argument('--data_seed', type=int, default=1)
 parser.add_argument('--epochs', '-e', type=int, default=75, help='Number of epochs to train.')
@@ -306,33 +305,22 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
 
             data_g, target_g = tocuda(data_g), tocuda(target_g)
             data_s, target_s_ = tocuda(data_s), tocuda(target_s)
-
-            # bi-level optimization stage
             eta = main_schdlr.get_lr()[0]
-            if args.method == 'hmlc_K':
-                loss_g, loss_s = step_ebomlc(main_net, main_opt, hard_loss_f,
-                                             meta_net, optimizer, soft_loss_f,
-                                             data_s, target_s_, data_g, target_g,
-                                             None, None,
-                                             eta, args)
-
-            elif args.method == 'hmlc_K_mix':
-                # split the clean set to two, one for training and the other for meta-evaluation
-                gbs = int(target_g.size(0) / 2)
-                if type(data_g) is list:
+            gbs = int(target_g.size(0) / 2)
+            if type(data_g) is list:
                     data_c = [x[gbs:] for x in data_g]
                     data_g = [x[:gbs] for x in data_g]
-                else:
+            else:
                     data_c = data_g[gbs:]
                     data_g = data_g[:gbs]
                     
-                target_c = target_g[gbs:]
-                target_g = target_g[:gbs]
-                loss_g, loss_s= step_ebomlc(main_net, main_opt, hard_loss_f,
-                                             meta_net, optimizer, soft_loss_f,
-                                             data_s, target_s_, data_g, target_g,
-                                             data_c, target_c,
-                                             eta, args)
+            target_c = target_g[gbs:]
+            target_g = target_g[:gbs]
+            loss_g, loss_s= step_ebomlc(main_net, main_opt, hard_loss_f,
+                                            meta_net, optimizer, soft_loss_f,
+                                            data_s, target_s_, data_g, target_g,
+                                            data_c, target_c,
+                                            eta, args)
             args.steps += 1
             if i % args.every == 0:
                 # compute loss g rely only on main net parameters
