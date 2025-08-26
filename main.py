@@ -71,7 +71,7 @@ parser.add_argument('--local_rank', type=int, default=-1, help='local rank (-1 f
 args = parser.parse_args()
 
 # //////////////// set logging and model outputs /////////////////
-filename = '_'.join([args.dataset, args.method, args.corruption_type, args.runid, str(args.epochs), str(args.seed), str(args.data_seed)])
+filename = '_'.join([args.dataset, args.corruption_type, args.runid, str(args.epochs), str(args.seed), str(args.data_seed)])
 if not os.path.isdir('logs'):
     os.mkdir('logs')
 logfile = 'logs/' + filename + '.log'
@@ -195,7 +195,7 @@ def flip_labels_C(num_classes, corruption_prob):
 # //////////////////////// run experiments ////////////////////////
 def run():
     corruption_fnctn = uniform_mix_C if args.corruption_type == 'unif' else flip_labels_C
-    filename = '_'.join([args.dataset, args.method, args.corruption_type, args.runid, str(args.epochs), str(args.seed), str(args.data_seed)])
+    filename = '_'.join([args.dataset, args.corruption_type, args.runid, str(args.epochs), str(args.seed), str(args.data_seed)])
 
     results = {}
 
