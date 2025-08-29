@@ -39,7 +39,7 @@ parser.add_argument('--meta_lr', default=3e-5, type=float, help='lr for meta net
 parser.add_argument('--optimizer', default='adam', type=str, choices=['adam', 'sgd', 'adadelta'])
 parser.add_argument('--opt_eps', default=1e-8, type=float, help='eps for optimizers')
 parser.add_argument('--wdecay', default=5e-4, type=float, help='weight decay (default: 5e-4)')
-parser.add_argument('method', type=str, choices=['ebomlc', 'mlc', 'mlcbome'])
+parser.add_argument('--method', type=str, choices=['ebomlc', 'mlc', 'mlcbome'])
 # noise parameters
 parser.add_argument('--corruption_type', default='unif', type=str, choices=['unif', 'flip', 'instance_dependent'])
 parser.add_argument('--corruption_level', default='-1', type=float, help='Corruption level')
