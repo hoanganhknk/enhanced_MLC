@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 
-from ebomlc import step_ebomlc
+from ebomlc import step_ebomlc, step_mlc, step_mlcbome
 from mlc_utils import clone_parameters, tocuda, DummyScheduler
 
 from models import *       
@@ -39,7 +39,7 @@ parser.add_argument('--meta_lr', default=3e-5, type=float, help='lr for meta net
 parser.add_argument('--optimizer', default='adam', type=str, choices=['adam', 'sgd', 'adadelta'])
 parser.add_argument('--opt_eps', default=1e-8, type=float, help='eps for optimizers')
 parser.add_argument('--wdecay', default=5e-4, type=float, help='weight decay (default: 5e-4)')
-
+parser.add_argument('method', type=str, choices=['ebomlc', 'mlc', 'mlcbome'])
 # noise parameters
 parser.add_argument('--corruption_type', default='unif', type=str, choices=['unif', 'flip', 'instance_dependent'])
 parser.add_argument('--corruption_level', default='-1', type=float, help='Corruption level')
@@ -316,25 +316,39 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
                     
             target_c = target_g[gbs:]
             target_g = target_g[:gbs]
-            loss_g, loss_s= step_ebomlc(main_net, main_opt, hard_loss_f,
-                                            meta_net, optimizer, soft_loss_f,
-                                            data_s, target_s_, data_g, target_g,
-                                            data_c, target_c,
-                                            eta, args)
+            if args.method == 'ebomlc':
+                upper_loss, lower_loss= step_ebomlc(main_net, main_opt, hard_loss_f,
+                                                meta_net, optimizer, soft_loss_f,
+                                                data_s, target_s_, data_g, target_g,
+                                                data_c, target_c,
+                                                eta, args)
+            elif args.method == 'mlc':
+                upper_loss, lower_loss= step_mlc(main_net, main_opt, hard_loss_f,
+                                                meta_net, optimizer, soft_loss_f,
+                                                data_s, target_s_, data_g, target_g,
+                                                data_c, target_c,
+                                                eta, args)
+            elif args.method == 'mlcbome':
+                upper_loss, lower_loss= step_mlcbome(main_net, main_opt, hard_loss_f,
+                                                meta_net, optimizer, soft_loss_f,
+                                                data_s, target_s_, data_g, target_g,
+                                                data_c, target_c,
+                                                eta, args)
+
             args.steps += 1
             if i % args.every == 0:
                 # compute loss g rely only on main net parameters
                 logit = main_net(data_g, return_h=False)
                 loss = hard_loss_f(logit, target_g)
-                writer.add_scalar('train/loss_g', loss.item(), args.steps)
-                writer.add_scalar('train/loss_s', loss_s.item(), args.steps)
+                writer.add_scalar('train/Val loss', loss.item(), args.steps)
+                writer.add_scalar('train/lower_loss', lower_loss.item(), args.steps)
 
                 main_lr = main_schdlr.get_lr()[0]
                 meta_lr = scheduler.get_lr()[0]
                 writer.add_scalar('train/main_lr', main_lr, args.steps)
                 writer.add_scalar('train/meta_lr', meta_lr, args.steps)
 
-                logger.info('Iteration %d loss_s: %.4f\tloss_g: %.4f\tMain LR: %.8f\tMeta LR: %.8f\t' %( i, loss_s.item(), loss.item(), main_lr, meta_lr))
+                logger.info('Iteration %d lower_loss: %.4f\tVal loss: %.4f\tMain LR: %.8f\tMeta LR: %.8f\t' %( i, lower_loss.item(), loss.item(), main_lr, meta_lr))
         # PER EPOCH PROCESSING
 
         # lr scheduler
