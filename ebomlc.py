@@ -209,7 +209,7 @@ def step_ebomlc(main_net, main_opt, hard_loss_f,
         lower_loss = (lower_loss * bs1 + loss_s2 * bs2) / (bs1 + bs2)
 
     gradient_g_mainparam = torch.autograd.grad(lower_loss, main_net.parameters(), create_graph=True)
-
+    gradient_g_metaparam = torch.autograd.grad(lower_loss, meta_net.parameters(), create_graph=True)
     f_params_new = update_params(main_net.parameters(), gradient_g_mainparam, eta, main_opt, args, return_s=False)
     for i, param in enumerate(main_net.parameters()):
         param.data = f_params_new[i]
@@ -222,9 +222,12 @@ def step_ebomlc(main_net, main_opt, hard_loss_f,
         logit_c = main_net(data_c)
         loss_s2 = hard_loss_f(logit_c, target_c)
         lower_loss_new = (lower_loss_new * bs1 + loss_s2 * bs2) / (bs1 + bs2)
-    grad_g_mainparam_new = list(torch.autograd.grad(lower_loss - lower_loss_new, main_net.parameters(), create_graph=True))
-    grad_g_metaparam_new = list(torch.autograd.grad(lower_loss - lower_loss_new, meta_net.parameters(), create_graph=True))
-    
+    grad_g_mainparam_new = list(torch.autograd.grad(lower_loss_new, main_net.parameters(), create_graph=True))
+    grad_g_metaparam_new = list(torch.autograd.grad(lower_loss_new, meta_net.parameters(), create_graph=True))
+    for i in range(len(grad_g_mainparam_new)):
+        grad_g_mainparam_new[i] = gradient_g_mainparam[i] - grad_g_mainparam_new[i]
+    for i in range(len(grad_g_metaparam_new)):
+        grad_g_metaparam_new[i] = gradient_g_metaparam[i] - grad_g_metaparam_new[i]
     dq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))]
                     + [grad_g_metaparam_new[i].view(-1) for i in range(len(grad_g_metaparam_new))])
     d_wq = torch.cat([grad_g_mainparam_new[i].view(-1) for i in range(len(grad_g_mainparam_new))])
