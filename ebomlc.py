@@ -234,7 +234,7 @@ def step_ebomlc(main_net, main_opt, hard_loss_f,
     df = torch.cat([gradient_f[i].view(-1) for i in range(len(gradient_f))] )
     norm_dq = dq.norm().pow(2)
     dot = torch.dot(d_wq, df)
-    beta = args.m*F.relu((args.delta*norm_dq - dot)/(norm_dq + 1e-8))
+    beta = args.xi*F.relu((args.delta*norm_dq - dot)/(norm_dq + 1e-8))
     if args.dataset != 'cifar10':
         grad_g_mainparam_new = update_params(main_net.parameters(), grad_g_mainparam_new, eta, main_opt, args, deltaonly=True, return_s=False)
     for i, param in enumerate(main_net.parameters()):

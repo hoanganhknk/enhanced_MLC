@@ -50,11 +50,12 @@ parser.add_argument('--sparsemax', default=False, action='store_true', help='Use
 parser.add_argument('--tie', default=False, action='store_true', help='Tie label embedding to the output classifier output embedding of metanet (default: False)')
 
 parser.add_argument('--runid', default='exp', type=str)
-parser.add_argument('--queue_size', default=1, type=int, help='Number of iterations before to compute mean loss_g')
+parser.add_argument('--queue_size', default=1, type=int, help='Number of iterations before to compute mean upper loss (recording)')
+parser.add_argument('--gradient_steps', default=1,type=int, help='Number of inner loop steps')
 
 ############## Hyperparameters ##################
 parser.add_argument('--rho', default=0.2, type=float)
-parser.add_argument('--m', default=0.5, type=float)
+parser.add_argument('--xi', default=0.5, type=float)
 parser.add_argument('--delta', default=0.25, type=float)
 # CIFAR
 # Positional arguments
@@ -96,40 +97,23 @@ from mlc_utils import soft_cross_entropy as soft_loss_f
 
 # //////////////////////// defining model ////////////////////////
 
+
 def get_data(dataset, gold_fraction, corruption_prob, get_C):
-    if dataset == 'cifar10' or dataset == 'cifar100':
-        sys.path.append('CIFAR')
-
-        from data_helper_cifar import prepare_data
-        args.use_mwnet_loader = True # use exactly the same loader as in the mwnet paper
-        logger.info('================= Use the same dataloader as in MW-Net =========================')
-        return prepare_data(gold_fraction, corruption_prob, get_C, args)
-    elif dataset == 'clothing1m':
-        sys.path.append('CLOTHING1M')
-
-        from data_helper_clothing1m import prepare_data
-        return prepare_data(args)
+    sys.path.append('CIFAR')
+    from data_helper_cifar import prepare_data
+    args.use_mwnet_loader = True
+    logger.info('================= Use the same dataloader as in MW-Net =========================')
+    return prepare_data(gold_fraction, corruption_prob, get_C, args)
 
 def build_models(dataset, num_classes):
-    cls_dim = args.cls_dim # input label embedding dimension
+    cls_dim = args.cls_dim
+    from CIFAR.resnet import resnet32
 
-    if dataset in ['cifar10', 'cifar100']:
-        from CIFAR.resnet import resnet32
+    model = resnet32(num_classes)
+    main_net = model
 
-        # main net
-        model = resnet32(num_classes)
-        main_net = model
-
-        # meta net
-        hx_dim = 64 #0 if isinstance(model, WideResNet) else 64 # 64 for resnet-32
-        meta_net = MetaNet(hx_dim, cls_dim, 128, num_classes, args)
-
-    elif dataset == 'clothing1m': # use pretrained ResNet-50 model
-        model = ResNet50(num_classes)
-        main_net = model
-            
-        hx_dim = 2048 # from resnet50
-        meta_net = MetaNet(2048, cls_dim, 128, num_classes, args)
+    hx_dim = 64
+    meta_net = MetaNet(hx_dim, cls_dim, 128, num_classes, args)
             
     main_net = main_net.cuda()
     meta_net = meta_net.cuda()
@@ -141,32 +125,23 @@ def build_models(dataset, num_classes):
 
     return main_net, meta_net
 
-def setup_training(main_net, meta_net, exp_id=None):
 
-    # ============== setting up from scratch ===================
-    # set up optimizers and schedulers
-    # meta net optimizer
+def setup_training(main_net, meta_net, exp_id=None):
     optimizer = torch.optim.Adam(meta_net.parameters(), lr=args.meta_lr,
-                                 weight_decay=0, #args.wdecay, # meta should have wdecay or not??
-                                 amsgrad=True, eps=args.opt_eps)
+                                 weight_decay=0, amsgrad=True, eps=args.opt_eps)
     scheduler = DummyScheduler(optimizer)
 
-    # main net optimizer
     main_params = main_net.parameters() 
-
     if args.optimizer == 'adam':
-        main_opt = torch.optim.Adam(main_params, lr=args.main_lr, weight_decay=args.wdecay, amsgrad=True, eps=args.opt_eps)
+        main_opt = torch.optim.Adam(main_params, lr=args.main_lr,
+                                    weight_decay=args.wdecay, amsgrad=True, eps=args.opt_eps)
     elif args.optimizer == 'sgd':
-        main_opt = torch.optim.SGD(main_params, lr=args.main_lr, weight_decay=args.wdecay, momentum=args.momentum)
-
-    if args.dataset in ['cifar10', 'cifar100']:
-        # follow MW-Net setting
-        main_schdlr = torch.optim.lr_scheduler.MultiStepLR(main_opt, milestones=[80,100], gamma=0.1)
-    elif args.dataset in ['clothing1m']:
-        main_schdlr = torch.optim.lr_scheduler.MultiStepLR(main_opt, milestones=[5], gamma=0.1)
+        main_opt = torch.optim.SGD(main_params, lr=args.main_lr,
+                                   weight_decay=args.wdecay, momentum=args.momentum)
     else:
-        main_schdlr = DummyScheduler(main_opt)
+        main_opt = torch.optim.Adadelta(main_params, lr=args.main_lr, weight_decay=args.wdecay)
 
+    main_schdlr = torch.optim.lr_scheduler.MultiStepLR(main_opt, milestones=[80,100], gamma=0.1)
     last_epoch = -1
 
     return main_net, meta_net, main_opt, optimizer, main_schdlr, scheduler, last_epoch
@@ -337,7 +312,7 @@ def train_and_test(main_net, meta_net, gold_loader, silver_loader, valid_loader,
 
             args.steps += 1
             if i % args.every == 0:
-                # compute loss g rely only on main net parameters
+                # compute val loss rely only on main net parameters
                 logit = main_net(data_g, return_h=False)
                 loss = hard_loss_f(logit, target_g)
                 writer.add_scalar('train/Val loss', loss.item(), args.steps)
