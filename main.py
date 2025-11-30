@@ -7,7 +7,7 @@ import logging
 import os
 from logger import get_logger
 from tqdm import tqdm
-from collections import deque
+from collections import deque, OrderedDict
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -51,6 +51,8 @@ parser.add_argument('--tie', default=False, action='store_true', help='Tie label
 parser.add_argument('--runid', default='exp', type=str)
 parser.add_argument('--queue_size', default=1, type=int, help='Number of iterations before to compute mean upper loss (recording)')
 parser.add_argument('--gradient_steps', default=1,type=int, help='Number of inner loop steps')
+parser.add_argument('--main_model_path', type=str, default='',
+                    help='Path to pretrained main model weights (.pth) for main net')
 
 ############## Hyperparameters ##################
 parser.add_argument('--rho', default=0.2, type=float)
@@ -104,11 +106,55 @@ def get_data(dataset, gold_fraction, corruption_prob, get_C):
     logger.info('================= Use the same dataloader as in MW-Net =========================')
     return prepare_data(gold_fraction, corruption_prob, get_C, args)
 
+# def build_models(dataset, num_classes):
+#     cls_dim = args.cls_dim
+#     from CIFAR.resnet import resnet32
+
+#     model = resnet32(num_classes)
+#     main_net = model
+
+#     hx_dim = 64
+#     meta_net = MetaNet(hx_dim, cls_dim, 128, num_classes, args)
+            
+#     main_net = main_net.cuda()
+#     meta_net = meta_net.cuda()
+
+#     logger.info('========== Main model ==========')
+#     logger.info(model)
+#     logger.info('========== Meta model ==========')
+#     logger.info(meta_net)
+
+#     return main_net, meta_net
+
 def build_models(dataset, num_classes):
     cls_dim = args.cls_dim
     from CIFAR.resnet import resnet32
 
     model = resnet32(num_classes)
+
+    if args.main_model_path is not None and args.main_model_path != '':
+        logger.info(f'Loading pretrained main model from {args.main_model_path}')
+        ckpt = torch.load(args.main_model_path, map_location='cpu')
+
+        if isinstance(ckpt, dict):
+            if 'state_dict' in ckpt:
+                state_dict = ckpt['state_dict']
+            elif 'main_net' in ckpt:
+                state_dict = ckpt['main_net']
+            else:
+                state_dict = ckpt
+        else:
+            state_dict = ckpt
+
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            new_key = k.replace('module.', '') if k.startswith('module.') else k
+            new_state_dict[new_key] = v
+
+        missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+        logger.info(f'Loaded pretrained main model. Missing keys: {missing}, unexpected keys: {unexpected}')
+    # ======================================================
+
     main_net = model
 
     hx_dim = 64
