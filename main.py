@@ -134,7 +134,7 @@ def build_models(dataset, num_classes):
 
     if args.main_model_path is not None and args.main_model_path != '':
         logger.info(f'Loading pretrained main model from {args.main_model_path}')
-        ckpt = torch.load(args.main_model_path, map_location='cpu')
+        ckpt = torch.load(args.main_model_path, map_location='cpu', weights_only=False)
 
         if isinstance(ckpt, dict):
             if 'state_dict' in ckpt:
