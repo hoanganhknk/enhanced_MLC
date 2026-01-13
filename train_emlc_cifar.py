@@ -6,14 +6,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils.seed import set_seed
-from utils.data_iter import DataIterator
-from utils.meters import AverageMeter, accuracy_top1
-
-from datasets.cifar_corrupted import make_cifar_loaders
-from models.resnet_cifar import resnet32
-from models.teacher_emlc import EMLCTeacher
-from models.metanet import MetaNet
+from enhanced_MLC.datasets.cifar_corrupted import make_cifar_loaders
+from enhanced_MLC.models.resnet_cifar import resnet32
+from enhanced_MLC.models.teacher_emlc import EMLCTeacher
+from enhanced_MLC.models.metanet import MetaNet
+from enhanced_MLC.utils.seed import set_seed
+from enhanced_MLC.utils.data_iter import DataIterator
+from enhanced_MLC.utils.meters import AverageMeter, accuracy_top1
 
 # -------------------------
 # Loss helpers
