@@ -5,6 +5,9 @@ from typing import Dict, List, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils.stateless import functional_call
+from torch.autograd import forward_ad
+
 
 from enhanced_MLC.datasets.cifar_corrupted import make_cifar_loaders
 from enhanced_MLC.models.resnet_cifar import resnet32
@@ -51,6 +54,33 @@ class Snapshot:
     y: torch.Tensor
     params: Dict[str, torch.Tensor]
     buffers: Dict[str, torch.Tensor]
+
+@torch.no_grad()
+def jvp_logsoftmax_forward_ad(student, params, buffers, x, g_named):
+    """
+    Compute JVP of log_softmax(student(x)) w.r.t params along direction g_named
+    using forward-mode AD (same idea as official EMLC meta.py).
+    Returns: (B, C) tensor
+    """
+    # Build "parameters_and_buffers" dict for stateless functional_call
+    pb = {}
+
+    with forward_ad.dual_level():
+        # dual parameters
+        for name, _ in student.named_parameters():
+            p = params[name]
+            v = g_named[name]
+            pb[name] = forward_ad.make_dual(p, v)
+
+        # plain buffers (BN running stats etc.)
+        for name, _ in student.named_buffers():
+            pb[name] = buffers[name]
+
+        logits = functional_call(student, pb, (x,))
+        lsm = F.log_softmax(logits, dim=1)
+
+        # tangent = JVP
+        return forward_ad.unpack_dual(lsm).tangent
 
 # -------------------------
 # Meta-gradient (FPMG)
@@ -129,7 +159,7 @@ def compute_meta_grads_fpmg(
     for snap in reversed(snapshots):
         # JVP of logp wrt params in direction g_w
         # jvp returns (primals_out, tangents_out)
-        _, jvp_out = jvp(lambda p: f_logp(p, snap.buffers, snap.x), (snap.params,), (g_named,))
+        jvp_out = jvp_logsoftmax_forward_ad(student, snap.params, snap.buffers, snap.x, g_named)
         jvp_out = jvp_out.detach()  # treat as constant wrt teacher
 
         if isinstance(teacher, MetaNet):
@@ -144,9 +174,17 @@ def compute_meta_grads_fpmg(
         meta_proxy = meta_proxy + w_factor * proxy_tau
         w_factor = w_factor * gamma
 
-    meta_grads = torch.autograd.grad(meta_proxy, list(teacher.parameters()), retain_graph=False, allow_unused=True)
-    meta_grads = [None if g is None else (lr_student * g) for g in meta_grads]
-    return meta_grads
+
+        meta_grads = torch.autograd.grad(
+            meta_proxy,
+            list(teacher.parameters()),
+            retain_graph=False,
+            allow_unused=True
+        )
+        # scale theo paper/official: eta_w (lr_student)
+        meta_grads = [None if g is None else (lr_student * g) for g in meta_grads]
+        return meta_grads
+
 
 # -------------------------
 # Teacher auxiliary losses (paper eq. (12): CE + BCE + META) :contentReference[oaicite:1]{index=1}
