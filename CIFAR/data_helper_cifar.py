@@ -11,15 +11,16 @@ CIFAR_MEAN = (0.4914, 0.4822, 0.4465)
 CIFAR_STD  = (0.2470, 0.2435, 0.2616)
 
 def build_transforms():
-    tf_noisy = transforms.Compose([
+    # For NumpyCIFAR (ndarray -> PIL)
+    tf_noisy_numpy = transforms.Compose([
         transforms.ToPILImage(),
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
     ])
-    # Clean augmentations include AutoAugment (Table 5) :contentReference[oaicite:6]{index=6}
-    tf_clean = transforms.Compose([
+
+    tf_clean_numpy = transforms.Compose([
         transforms.ToPILImage(),
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -27,16 +28,23 @@ def build_transforms():
         transforms.ToTensor(),
         transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
     ])
-    tf_test = transforms.Compose([
+
+    tf_test_numpy = transforms.Compose([
         transforms.ToPILImage(),
         transforms.ToTensor(),
         transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
     ])
-    return tf_noisy, tf_clean, tf_test
+
+    # For torchvision CIFAR test (already PIL)
+    tf_test_pil = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+    ])
+
+    return tf_noisy_numpy, tf_clean_numpy, tf_test_numpy, tf_test_pil
 
 def prepare_cifar_loaders(args):
-    tf_noisy, tf_clean, tf_test = build_transforms()
-
+    tf_noisy, tf_clean, tf_test_numpy, tf_test_pil = build_transforms()
     splits = load_cifar_splits(
         dataset=args.dataset,
         root=args.data_path,
@@ -60,16 +68,15 @@ def prepare_cifar_loaders(args):
     idx_meta  = idx[split:]
 
     gold_train = NumpyCIFAR(gold_data[idx_train], gold_y[idx_train], transform=tf_clean)
-    gold_meta  = NumpyCIFAR(gold_data[idx_meta],  gold_y[idx_meta],  transform=tf_test)
+    gold_meta  = NumpyCIFAR(gold_data[idx_meta],  gold_y[idx_meta],  transform=tf_test_numpy)
 
     silver_train = NumpyCIFAR(silver_data, silver_y, transform=tf_noisy)
 
     # torchvision test set
     if args.dataset.lower() == "cifar10":
-        testset = datasets.CIFAR10(root=args.data_path, train=False, download=True, transform=tf_test)
+        testset = datasets.CIFAR10(root=args.data_path, train=False, download=True, transform=tf_test_pil)
     else:
-        testset = datasets.CIFAR100(root=args.data_path, train=False, download=True, transform=tf_test)
-
+        testset = datasets.CIFAR100(root=args.data_path, train=False, download=True, transform=tf_test_pil)
     loader_s = DataLoader(silver_train, batch_size=args.bs, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
     loader_g_train = DataLoader(gold_train, batch_size=args.gold_bs, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
     loader_g_meta  = DataLoader(gold_meta, batch_size=args.gold_bs, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
