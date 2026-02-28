@@ -5,7 +5,7 @@ This is the Pytorch implementation for "Efficient Bilevel Optimization for Noisy
 Authors: Ba Hoang Anh Nguyen, Cuong Ta
 
 <p align="center">
-  <img src="robustMLC.png" alt="Framework of EBOMLC" style="width:60%;">
+  <img src="robustMLC.png" alt="Framework of EBOMLC" style="width:30%;">
 </p>
 
 ## 2. Setup
