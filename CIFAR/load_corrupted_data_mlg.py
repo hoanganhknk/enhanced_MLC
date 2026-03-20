@@ -1,195 +1,263 @@
-# CIFAR/load_corrupted_data_mlg.py
+from PIL import Image
+import os
+import os.path
+import errno
 import numpy as np
+import sys
+import pickle
+
+
+import torch.utils.data as data
+from torchvision.datasets.utils import download_url, check_integrity
+
 import torch
-from torch.utils.data import Dataset
-from torchvision import datasets
+import torch.nn.functional as F
+import torchvision.transforms as transforms
 
-# CIFAR-10 asymmetric mapping (Appendix E.1) :contentReference[oaicite:5]{index=5}
-_C10_ASYM = {
-    9: 1,  # truck -> automobile
-    2: 0,  # bird -> airplane
-    4: 7,  # deer -> horse
-    3: 5,  # cat -> dog
-    5: 3,  # dog -> cat
-}
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+torch.use_deterministic_algorithms(True)
 
-# CIFAR-100 coarse mapping: list of 100 fine labels -> 20 coarse labels (standard mapping)
-_C100_FINE_TO_COARSE = [
-    4, 1, 14, 8, 0, 6, 7, 7, 18, 3,
-    3, 14, 9, 18, 7, 11, 3, 9, 7, 11,
-    6, 11, 5, 10, 7, 6, 13, 15, 3, 15,
-    0, 11, 1, 10, 12, 14, 16, 9, 11, 5,
-    5, 19, 8, 8, 15, 13, 14, 17, 18, 10,
-    16, 4, 17, 4, 2, 0, 17, 4, 18, 17,
-    10, 3, 2, 12, 12, 16, 12, 1, 9, 19,
-    2, 10, 0, 1, 16, 12, 9, 13, 15, 13,
-    16, 19, 2, 4, 6, 19, 5, 5, 8, 19,
-    18, 1, 2, 15, 6, 0, 17, 8, 14, 13
-]
+def uniform_mix_C(mixing_ratio, num_classes):
+    '''
+    returns a linear interpolation of a uniform matrix and an identity matrix
+    '''
+    return mixing_ratio * np.full((num_classes, num_classes), 1 / num_classes) + \
+        (1 - mixing_ratio) * np.eye(num_classes)
 
-def _rng(seed: int):
-    return np.random.RandomState(seed)
+def flip_labels_C(corruption_prob, num_classes, seed=1):
+    '''
+    returns a matrix with (1 - corruption_prob) on the diagonals, and corruption_prob
+    concentrated in only one other entry for each row
+    '''
+    np.random.seed(seed)
+    C = np.eye(num_classes) * (1 - corruption_prob)
+    row_indices = np.arange(num_classes)
+    for i in range(num_classes):
+        C[i][np.random.choice(row_indices[row_indices != i])] = corruption_prob
+    return C
 
-class NumpyCIFAR(Dataset):
-    def __init__(self, data: np.ndarray, targets: np.ndarray, transform=None):
-        self.data = data
-        self.targets = targets.astype(np.int64)
+def flip_labels_C_two(corruption_prob, num_classes, seed=1):
+    '''
+    returns a matrix with (1 - corruption_prob) on the diagonals, and corruption_prob
+    concentrated in only one other entry for each row
+    '''
+    np.random.seed(seed)
+    C = np.eye(num_classes) * (1 - corruption_prob)
+    row_indices = np.arange(num_classes)
+    for i in range(num_classes):
+        C[i][np.random.choice(row_indices[row_indices != i], 2, replace=False)] = corruption_prob / 2
+    return C
+
+class CIFAR10(data.Dataset):
+    base_folder = 'cifar-10-batches-py'
+    url = "http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+    filename = "cifar-10-python.tar.gz"
+    tgz_md5 = 'c58f30108f718f92721af3b95e74349a'
+    train_list = [
+        ['data_batch_1', 'c99cafc152244af753f735de768cd75f'],
+        ['data_batch_2', 'd4bba439e000b95fd0a9bffe97cbabec'],
+        ['data_batch_3', '54ebc095f3ab1f0389bbae665268c751'],
+        ['data_batch_4', '634d18415352ddfa80567beed471001a'],
+        ['data_batch_5', '482c414d41f54cd18b22e5b47cb7c3cb'],
+    ]
+
+    test_list = [
+        ['test_batch', '40351d587109b95175f43aff81a1287e'],
+    ]
+
+    def __init__(self, root='', train=True, meta=True, num_meta=1000,
+                 corruption_prob=0, corruption_type='unif', transform=None, target_transform=None,
+                 download=False, seed=1):
+        self.root = root
         self.transform = transform
+        self.target_transform = target_transform
+        self.train = train  # training set or test set
+        self.meta = meta
+        self.corruption_prob = corruption_prob
+        self.num_meta = num_meta
+        self.original_labels = None
+        if download:
+            self.download()
 
-    def __len__(self):
-        return self.data.shape[0]
+        if not self._check_integrity():
+            raise RuntimeError('Dataset not found or corrupted.' +
+                               ' You can use download=True to download it')
 
-    def __getitem__(self, idx):
-        img = self.data[idx]
-        y = int(self.targets[idx])
-        # torchvision transforms expect PIL or ndarray; CIFAR data is uint8 HWC
+        # now load the picked numpy arrays
+        if self.train:
+            self.train_data = []
+            self.train_labels = []
+            self.train_coarse_labels = []
+            for fentry in self.train_list:
+                f = fentry[0]
+                file = os.path.join(root, self.base_folder, f)
+                fo = open(file, 'rb')
+                if sys.version_info[0] == 2:
+                    entry = pickle.load(fo)
+                else:
+                    entry = pickle.load(fo, encoding='latin1')
+                self.train_data.append(entry['data'])
+                if 'labels' in entry:
+                    self.train_labels += entry['labels']
+                    img_num_list = [int(self.num_meta/10)] * 10
+                    num_classes = 10
+                else:
+                    self.train_labels += entry['fine_labels']
+                    self.train_coarse_labels += entry['coarse_labels']
+                    img_num_list = [int(self.num_meta/100)] * 100
+                    num_classes = 100
+                fo.close()
+
+            self.train_data = np.concatenate(self.train_data)
+            self.train_data = self.train_data.reshape((50000, 3, 32, 32))
+            self.train_data = self.train_data.transpose((0, 2, 3, 1))   # convert to HWC
+
+            data_list_val = {}
+            for j in range(num_classes):
+                data_list_val[j] = [i for i, label in enumerate(self.train_labels) if label == j]
+
+
+            idx_to_meta = []
+            idx_to_train = []
+            print(img_num_list)
+
+            for cls_idx, img_id_list in data_list_val.items():
+                np.random.shuffle(img_id_list)
+                img_num = img_num_list[int(cls_idx)]
+                idx_to_meta.extend(img_id_list[:img_num])
+                idx_to_train.extend(img_id_list[img_num:])
+
+
+            if meta is True:
+                self.train_data = self.train_data[idx_to_meta]
+                self.train_labels = list(np.array(self.train_labels)[idx_to_meta])
+                self.original_labels = self.train_labels.copy()
+            else:
+                self.train_data = self.train_data[idx_to_train]
+                self.train_labels = list(np.array(self.train_labels)[idx_to_train])
+                self.original_labels = self.train_labels.copy()
+                if corruption_type == 'hierarchical':
+                    self.train_coarse_labels = list(np.array(self.train_coarse_labels)[idx_to_meta])
+
+                if corruption_type == 'unif':
+                    C = uniform_mix_C(self.corruption_prob, num_classes)
+                    print(C)
+                    self.C = C
+                elif corruption_type == 'flip':
+                    C = flip_labels_C(self.corruption_prob, num_classes)
+                    print(C)
+                    self.C = C
+                elif corruption_type == 'flip2':
+                    C = flip_labels_C_two(self.corruption_prob, num_classes)
+                    print(C)
+                    self.C = C
+                elif corruption_type == 'hierarchical':
+                    assert num_classes == 100, 'You must use CIFAR-100 with the hierarchical corruption.'
+                    coarse_fine = []
+                    for i in range(20):
+                        coarse_fine.append(set())
+                    for i in range(len(self.train_labels)):
+                        coarse_fine[self.train_coarse_labels[i]].add(self.train_labels[i])
+                    for i in range(20):
+                        coarse_fine[i] = list(coarse_fine[i])
+
+                    C = np.eye(num_classes) * (1 - corruption_prob)
+
+                    for i in range(20):
+                        tmp = np.copy(coarse_fine[i])
+                        for j in range(len(tmp)):
+                            tmp2 = np.delete(np.copy(tmp), j)
+                            C[tmp[j], tmp2] += corruption_prob * 1/len(tmp2)
+                    self.C = C
+                    print(C)
+                else:
+                    assert False, "Invalid corruption type '{}' given. Must be in {'unif', 'flip', 'hierarchical'}".format(corruption_type)
+                np.random.seed(seed)
+                for i in range(len(self.train_labels)):
+                    self.train_labels[i] = np.random.choice(num_classes, p=C[self.train_labels[i]])
+                self.corruption_matrix = C
+
+        else:
+            f = self.test_list[0][0]
+            file = os.path.join(root, self.base_folder, f)
+            fo = open(file, 'rb')
+            if sys.version_info[0] == 2:
+                entry = pickle.load(fo)
+            else:
+                entry = pickle.load(fo, encoding='latin1')
+            self.test_data = entry['data']
+            if 'labels' in entry:
+                self.test_labels = entry['labels']
+            else:
+                self.test_labels = entry['fine_labels']
+            fo.close()
+            self.test_data = self.test_data.reshape((10000, 3, 32, 32))
+            self.test_data = self.test_data.transpose((0, 2, 3, 1))  # convert to HWC
+
+    def __getitem__(self, index):
+        if self.train:
+            img, target = self.train_data[index], self.train_labels[index]
+        else:
+            img, target = self.test_data[index], self.test_labels[index]
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
         if self.transform is not None:
             img = self.transform(img)
-        return img, y
 
-def _class_balanced_indices(y: np.ndarray, n_per_class: int, seed: int, num_classes: int):
-    r = _rng(seed)
-    idxs = []
-    for c in range(num_classes):
-        c_idx = np.where(y == c)[0]
-        r.shuffle(c_idx)
-        idxs.append(c_idx[:n_per_class])
-    return np.concatenate(idxs)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
 
-def _apply_unif(y: np.ndarray, p: float, seed: int, num_classes: int):
-    r = _rng(seed)
-    y2 = y.copy()
-    m = r.rand(len(y2)) < p
-    y2[m] = r.randint(0, num_classes, size=m.sum())
-    return y2
+        return img, target
 
-def _apply_flip(y: np.ndarray, p: float, seed: int, num_classes: int):
-    r = _rng(seed)
-    y2 = y.copy()
-    # fixed mapping per class
-    mapping = np.arange(num_classes)
-    for c in range(num_classes):
-        choices = [j for j in range(num_classes) if j != c]
-        mapping[c] = r.choice(choices)
-    m = r.rand(len(y2)) < p
-    y2[m] = mapping[y2[m]]
-    return y2
-
-def _apply_flip2(y: np.ndarray, p: float, seed: int, num_classes: int):
-    r = _rng(seed)
-    y2 = y.copy()
-    map1 = np.arange(num_classes)
-    map2 = np.arange(num_classes)
-    for c in range(num_classes):
-        choices = [j for j in range(num_classes) if j != c]
-        a, b = r.choice(choices, size=2, replace=False)
-        map1[c], map2[c] = a, b
-    u = r.rand(len(y2))
-    m1 = u < (p / 2)
-    m2 = (u >= (p / 2)) & (u < p)
-    y2[m1] = map1[y2[m1]]
-    y2[m2] = map2[y2[m2]]
-    return y2
-
-def _apply_asym_c10(y: np.ndarray, p: float, seed: int):
-    r = _rng(seed)
-    y2 = y.copy()
-    m = r.rand(len(y2)) < p
-    for i in np.where(m)[0]:
-        y2[i] = _C10_ASYM.get(int(y2[i]), int(y2[i]))
-    return y2
-
-def _apply_asym_c100_successor_in_coarse(y: np.ndarray, p: float, seed: int):
-    r = _rng(seed)
-    y2 = y.copy()
-    fine_to_coarse = np.array(_C100_FINE_TO_COARSE)
-    coarse_to_fines = {k: np.where(fine_to_coarse == k)[0].tolist() for k in range(20)}
-    m = r.rand(len(y2)) < p
-    for i in np.where(m)[0]:
-        fine = int(y2[i])
-        coarse = int(fine_to_coarse[fine])
-        fines = coarse_to_fines[coarse]
-        pos = fines.index(fine)
-        y2[i] = fines[(pos + 1) % len(fines)]
-    return y2
-
-def _apply_hierarchical_c100(y: np.ndarray, p: float, seed: int):
-    r = _rng(seed)
-    y2 = y.copy()
-    fine_to_coarse = np.array(_C100_FINE_TO_COARSE)
-    coarse_to_fines = {k: np.where(fine_to_coarse == k)[0] for k in range(20)}
-    m = r.rand(len(y2)) < p
-    for i in np.where(m)[0]:
-        fine = int(y2[i])
-        coarse = int(fine_to_coarse[fine])
-        candidates = coarse_to_fines[coarse]
-        candidates = candidates[candidates != fine]
-        y2[i] = int(r.choice(candidates))
-    return y2
-
-def load_cifar_splits(
-    dataset: str,
-    root: str,
-    gold_fraction: float,
-    corruption_type: str,
-    corruption_level: float,
-    seed: int,
-    download: bool = True
-):
-    dataset = dataset.lower()
-    assert dataset in ("cifar10", "cifar100")
-    is_c10 = dataset == "cifar10"
-    num_classes = 10 if is_c10 else 100
-
-    ds = datasets.CIFAR10(root=root, train=True, download=download) if is_c10 else datasets.CIFAR100(root=root, train=True, download=download)
-    data = ds.data                      # (50000,32,32,3) uint8
-    targets = np.array(ds.targets)
-
-    n_total = len(targets)
-    n_gold = int(round(n_total * gold_fraction))
-    n_gold = max(n_gold, num_classes)   # at least 1 per class in extreme cases
-    n_per = n_gold // num_classes
-    gold_idx = _class_balanced_indices(targets, n_per_class=n_per, seed=seed, num_classes=num_classes)
-
-    # if remainder exists, add more random indices (still from remaining pool)
-    remaining = np.setdiff1d(np.arange(n_total), gold_idx)
-    rem = n_gold - len(gold_idx)
-    if rem > 0:
-        r = _rng(seed + 13)
-        r.shuffle(remaining)
-        gold_idx = np.concatenate([gold_idx, remaining[:rem]])
-
-    silver_idx = np.setdiff1d(np.arange(n_total), gold_idx)
-
-    gold_data = data[gold_idx]
-    gold_y = targets[gold_idx]          # clean
-
-    silver_data = data[silver_idx]
-    silver_clean_y = targets[silver_idx]
-    p = float(corruption_level)
-
-    ct = corruption_type.lower()
-    if ct == "unif":
-        silver_noisy_y = _apply_unif(silver_clean_y, p, seed + 1, num_classes)
-    elif ct == "flip":
-        silver_noisy_y = _apply_flip(silver_clean_y, p, seed + 2, num_classes)
-    elif ct == "flip2":
-        silver_noisy_y = _apply_flip2(silver_clean_y, p, seed + 3, num_classes)
-    elif ct == "asym":
-        if is_c10:
-            silver_noisy_y = _apply_asym_c10(silver_clean_y, p, seed + 4)
+    def __len__(self):
+        if self.train:
+            if self.meta is True:
+                return self.num_meta
+            else:
+                return 50000 - self.num_meta
         else:
-            silver_noisy_y = _apply_asym_c100_successor_in_coarse(silver_clean_y, p, seed + 4)
-    elif ct == "hierarchical":
-        assert not is_c10, "hierarchical only supported for CIFAR-100"
-        silver_noisy_y = _apply_hierarchical_c100(silver_clean_y, p, seed + 5)
-    else:
-        raise ValueError(f"Unknown corruption_type={corruption_type}")
+            return 10000
 
-    out = dict(
-        num_classes=num_classes,
-        gold=(gold_data, gold_y),
-        silver=(silver_data, silver_noisy_y),
-        test_dataset="cifar10" if is_c10 else "cifar100",
-    )
-    return out
+    def _check_integrity(self):
+        root = self.root
+        for fentry in (self.train_list + self.test_list):
+            filename, md5 = fentry[0], fentry[1]
+            fpath = os.path.join(root, self.base_folder, filename)
+            if not check_integrity(fpath, md5):
+                return False
+        return True
+
+    def download(self):
+        import tarfile
+
+        if self._check_integrity():
+            print('Files already downloaded and verified')
+            return
+
+        root = self.root
+        download_url(self.url, root, self.filename, self.tgz_md5)
+
+        # extract file
+        cwd = os.getcwd()
+        tar = tarfile.open(os.path.join(root, self.filename), "r:gz")
+        os.chdir(root)
+        tar.extractall()
+        tar.close()
+        os.chdir(cwd)
+
+
+class CIFAR100(CIFAR10):
+    base_folder = 'cifar-100-python'
+    url = "http://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
+    filename = "cifar-100-python.tar.gz"
+    tgz_md5 = 'eb9058c3a382ffc7106e4002c42a8d85'
+    train_list = [
+        ['train', '16019d7e3df5f24257cddd939b257f8d'],
+    ]
+
+    test_list = [
+        ['test', 'f0ef6b0ae62326f3e7ffdfab6717acfc'],
+    ]

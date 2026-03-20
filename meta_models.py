@@ -1,69 +1,76 @@
-# meta_models.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-class TeacherEnhancer(nn.Module):
-    """
-    label embedding + feature -> MLP -> sigmoid weight w in (0,1)
-    Paper: 1 hidden layer, 128 units (Table 5). :contentReference[oaicite:3]{index=3}
-    """
-    def __init__(self, num_classes: int, feat_dim: int = 64, emb_dim: int = 64, hidden: int = 128):
+import math
+import numpy as np
+class MetaNet(nn.Module):
+    def __init__(self, hx_dim, cls_dim, h_dim, num_classes, args):
         super().__init__()
-        self.emb = nn.Embedding(num_classes, emb_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(feat_dim + emb_dim, hidden),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden, 1),
+
+        self.args = args
+
+        self.num_classes = num_classes        
+        self.in_class = self.num_classes 
+        self.hdim = h_dim
+        self.cls_emb = nn.Embedding(self.in_class, cls_dim)
+
+        in_dim = hx_dim + cls_dim
+
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, self.hdim),
+            nn.Tanh(),
+            nn.Dropout(p = 0.3),
+            nn.Linear(self.hdim, self.hdim),
+            nn.Tanh(),
+            nn.BatchNorm1d(self.hdim), 
+            nn.Linear(self.hdim, num_classes + int(self.args.skip), bias=(not self.args.tie)),
         )
 
-    def forward(self, feat: torch.Tensor, noisy_y: torch.Tensor):
-        z = self.emb(noisy_y)               # (B, emb_dim)
-        h = torch.cat([feat, z], dim=1)     # (B, feat_dim+emb_dim)
-        w = torch.sigmoid(self.mlp(h))      # (B, 1)
-        return w
+        if self.args.sparsemax:
+            from sparsemax import Sparsemax
+            self.sparsemax = Sparsemax(-1)
 
-class Teacher(nn.Module):
-    """
-    Teacher = independent backbone+classifier + enhancer producing w.
-    Corrected target: q = w * one_hot(noisy_y) + (1-w) * softmax(teacher_logits)
-    Matches Fig.3 and Appendix D. :contentReference[oaicite:4]{index=4}
-    """
-    def __init__(self, backbone: nn.Module, num_classes: int, feat_dim: int = 64, emb_dim: int = 64, hidden: int = 128):
-        super().__init__()
-        self.backbone = backbone
-        self.num_classes = num_classes
-        self.enhancer = TeacherEnhancer(num_classes, feat_dim=feat_dim, emb_dim=emb_dim, hidden=hidden)
+        self.init_weights()
 
-    @torch.no_grad()
-    def _one_hot(self, y: torch.Tensor):
-        return F.one_hot(y, num_classes=self.num_classes).float()
+        if self.args.tie:
+            print ('Tying cls emb to output cls weight')
+            self.net[-1].weight = self.cls_emb.weight
 
-    def forward(self, x, return_h: bool = False):
-        # backbone MUST support return_h
-        return self.backbone(x, return_h=return_h)
+        
+    def init_weights(self):
+        nn.init.xavier_normal_(self.net[0].weight)
+        nn.init.xavier_normal_(self.net[3].weight)
+        nn.init.xavier_normal_(self.net[6].weight)
 
-    def retain_conf(self, x: torch.Tensor, noisy_y: torch.Tensor):
-        logits, feat = self.backbone(x, return_h=True)
-        w = self.enhancer(feat, noisy_y)
-        return w, logits, feat
+        self.net[0].bias.data.zero_()
+        self.net[3].bias.data.zero_()
 
-    def corrected_targets(self, x: torch.Tensor, noisy_y: torch.Tensor, temperature: float = 1.0):
-        w, logits, feat = self.retain_conf(x, noisy_y)
-        p = F.softmax(logits / max(temperature, 1e-8), dim=1)  # (B,C)
-        y_oh = F.one_hot(noisy_y, num_classes=self.num_classes).float()
-        q = w * y_oh + (1.0 - w) * p
-        q = q / (q.sum(dim=1, keepdim=True) + 1e-12)
-        return q, w, logits, feat
+        if not self.args.tie:
+            assert self.in_class == self.num_classes, 'In and out classes conflict!'
+            self.net[6].bias.data.zero_()
 
-    @torch.no_grad()
-    def adversarial_corrupt_labels(self, x: torch.Tensor, true_y: torch.Tensor):
-        """
-        Adversarial corruption for BCE objective:
-        replace label with strongest incorrect prediction of teacher classifier.
-        """
-        logits = self.backbone(x, return_h=False)
-        probs = F.softmax(logits, dim=1)
-        probs[torch.arange(true_y.size(0), device=true_y.device), true_y] = -1.0
-        adv = probs.argmax(dim=1)
-        return adv
+    def get_alpha(self):
+        return self.alpha if self.args.skip else torch.zeros(1)
+
+    def forward(self, hx, y):
+        bs = hx.size(0)
+
+        y_emb = self.cls_emb(y)
+        hin = torch.cat([hx, y_emb], dim=-1)
+
+        logit = self.net(hin)
+
+        if self.args.skip:
+            alpha = torch.sigmoid(logit[:, self.num_classes:])
+            self.alpha = alpha.mean()
+            logit = logit[:, :self.num_classes]
+
+        if self.args.sparsemax:
+            out = self.sparsemax(logit) # test sparsemax
+        else:
+            out = F.softmax(logit, -1)
+
+        if self.args.skip:
+            out = (1.-alpha) * out + alpha * F.one_hot(y, self.num_classes).type_as(out)
+
+        return out
